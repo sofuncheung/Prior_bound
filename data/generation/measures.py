@@ -13,6 +13,15 @@ from .models import ExperimentBaseModel
 
 
 # Adapted from https://github.com/bneyshabur/generalization-bounds/blob/master/measures.py
+
+# This function reparametrizes the networks with batch normalization in a way that
+# it calculates the same function as the original network but without batch normalization
+# Instead of removing batch norm completely, we set the bias and mean
+# to zero, and scaling and variance to one
+# Warning: This function only works for convolutional and fully connected networks.
+# It also assumes that module.children() returns the children of a module
+# in the forward pass order. Recurssive construction is allowed.
+
 @torch.no_grad()
 def _reparam(model):
     def in_place_reparam(model, prev_layer=None):
@@ -44,10 +53,11 @@ def _perturbed_model(
     rng,
     magnitude_eps: Optional[float] = None
 ):
-    device = next(model.parameters()).device
+    device = next(model.parameters()).device # Here next is just to get an item from the
+                                             # generator.
     if magnitude_eps is not None:
         noise = [torch.normal(0, sigma**2 * torch.abs(p) ** 2 +
-                              magnitude_eps ** 2, generator=rng) for p in model.parameters()]
+                    magnitude_eps ** 2, generator=rng) for p in model.parameters()]
     else:
         noise = [torch.normal(0, sigma**2, p.shape, generator=rng).to(device)
                  for p in model.parameters()]

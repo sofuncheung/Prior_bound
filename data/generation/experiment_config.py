@@ -23,6 +23,9 @@ class DatasetSubsetType(IntEnum):
 
 
 class ComplexityType(Enum):
+    # GP based Measures
+    PRIOR = 0
+    MAR_LIK = 1
     # Measures from Fantastic Generalization Measures (equation numbers)
     PARAMS = 20
     INVERSE_MARGIN = 22
