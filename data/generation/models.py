@@ -69,7 +69,7 @@ class NiN(ExperimentBaseModel):
 
         x = self.conv(x)
         x = self.bn(x)
-        x = self.relu(x)
+        #x = self.relu(x) # For binary classfication we need negative logits
 
         x = self.avgpool(x)
 

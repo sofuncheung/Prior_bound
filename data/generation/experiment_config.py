@@ -9,8 +9,8 @@ from typing import Dict, List, NamedTuple, Optional, Tuple
 class DatasetType(Enum):
     CIFAR10 = (1, (3, 32, 32), 10)
     SVHN = (2, (3, 32, 32), 10)
-    CIFAR10_binary = (3, (3, 32, 32), 2)
-    SVHN_binary = (4, (3, 32, 32), 2)
+    CIFAR10_binary = (3, (3, 32, 32), 1)
+    SVHN_binary = (4, (3, 32, 32), 1)
 
     def __init__(self, id: int, image_shape: Tuple[int, int, int], num_classes: int):
         self.D = image_shape

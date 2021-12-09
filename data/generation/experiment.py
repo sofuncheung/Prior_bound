@@ -10,6 +10,7 @@ from tqdm import trange
 from .dataset_helpers import get_dataloaders
 from .experiment_config import (
     Config,
+    DatasetType,
     DatasetSubsetType,
     HParams,
     State,
@@ -105,7 +106,11 @@ class Experiment:
             self.optimizer.zero_grad()
 
             logits = self.model(data)
-            cross_entropy = F.cross_entropy(logits, target)
+            if (self.hparams.dataset_type == DatasetType.CIFAR10_binary or
+                    self.hparams.dataset_type == DatasetType.SVHN_binary):
+                cross_entropy = F.binary_cross_entropy_with_logits(logits, target.float())
+            else:
+                cross_entropy = F.cross_entropy(logits, target)
 
             cross_entropy.backward()
             loss = cross_entropy.clone()
@@ -210,11 +215,18 @@ class Experiment:
             data, target = data.to(self.device, non_blocking=True), target.to(
                 self.device, non_blocking=True)
             logits = self.model(data)
-            cross_entropy = F.cross_entropy(logits, target, reduction='sum')
+            if (self.hparams.dataset_type == DatasetType.CIFAR10_binary or
+                    self.hparams.dataset_type == DatasetType.SVHN_binary):
+                cross_entropy = F.binary_cross_entropy_with_logits(logits, target.float(),
+                        reduction='sum')
+                pred = (logits > 0)
+            else:
+                cross_entropy = F.cross_entropy(logits, target, reduction='sum')
+                pred = logits.data.max(1, keepdim=True)[1] # [1] means to return indices
             cross_entropy_loss += cross_entropy.item()  # sum up batch loss
 
             # get the index of the max logits
-            pred = logits.data.max(1, keepdim=True)[1]
+
             batch_correct = pred.eq(target.data.view_as(
                 pred)).type(torch.FloatTensor).cpu()
             num_correct += batch_correct.sum()
