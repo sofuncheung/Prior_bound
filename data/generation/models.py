@@ -74,3 +74,37 @@ class NiN(ExperimentBaseModel):
         x = self.avgpool(x)
 
         return x.squeeze()
+
+class NiN_binary(ExperimentBaseModel):
+    def __init__(self, depth: int, width: int, base_width: int, dataset_type: DatasetType) -> None:
+        super().__init__(dataset_type)
+
+        assert self.dataset_type.K ==2, "NiN_binary can only be used with two logits"
+
+        self.base_width = base_width
+
+        blocks = []
+        blocks.append(NiNBlock(self.dataset_type.D[0], self.base_width*width))
+        for _ in range(depth-1):
+            blocks.append(NiNBlock(self.base_width *
+                          width, self.base_width*width))
+        self.blocks = nn.Sequential(*blocks)
+
+        self.conv = nn.Conv2d(self.base_width*width,
+                              self.dataset_type.K, kernel_size=1, stride=1)
+        self.bn = nn.BatchNorm2d(self.dataset_type.K)
+        self.relu = nn.ReLU(inplace=True)
+
+        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+
+    def forward(self, x):
+        x = self.blocks(x)
+
+        x = self.conv(x)
+        x = self.bn(x)
+        x = self.relu(x)
+
+        x = self.avgpool(x)
+        x = x.squeeze()
+
+        return x[1] - x[0]

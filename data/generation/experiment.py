@@ -72,8 +72,9 @@ class Experiment:
             raise KeyError
 
         # Load data
-        self.train_loader, self.train_eval_loader, self.test_loader = get_dataloaders(
-            self.hparams, self.config, self.device)
+        (self.train_loader, self.train_eval_loader,
+                self.test_loader, _, _) = get_dataloaders(
+                        self.hparams, self.config, self.device)
 
     def save_state(self, postfix: str = '') -> None:
         checkpoint_file = self.config.checkpoint_dir / \
