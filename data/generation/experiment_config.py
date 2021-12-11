@@ -103,7 +103,7 @@ class HParams:
     dataset_type: DatasetType = DatasetType.SVHN_binary
     data_seed: Optional[int] = 42
     train_dataset_size: Optional[int] = 5000
-    test_dataset_size: Optional[int] = None
+    test_dataset_size: Optional[int] = 10000
     # Training
     batch_size: int = 32
     epochs: int = 300

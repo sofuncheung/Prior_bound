@@ -18,7 +18,7 @@ from .experiment_config import (
 )
 from .logs import BaseLogger, Printer
 from .measures import get_all_measures
-from .models import NiN
+from .models import NiN, NiN_binary
 
 
 class Experiment:
@@ -57,6 +57,9 @@ class Experiment:
               for p in self.model.parameters() if p.requires_grad))
         self.model.to(device)
         self.init_model = deepcopy(self.model)
+        self.model_binary = NiN_binary(hparams.model_depth, hparams.model_width,
+                hparams.base_width, hparams.dataset_type)
+
 
         # Optimizer
         if self.hparams.optimizer_type == OptimizerType.SGD:
@@ -73,7 +76,7 @@ class Experiment:
 
         # Load data
         (self.train_loader, self.train_eval_loader,
-                self.test_loader, _, _) = get_dataloaders(
+                self.test_loader) = get_dataloaders(
                         self.hparams, self.config, self.device)
 
     def save_state(self, postfix: str = '') -> None:
@@ -183,6 +186,7 @@ class Experiment:
         self.model.eval()
         data_loader = [self.train_eval_loader,
                        self.test_loader][dataset_subset_type]
+        trainNtest_loaders = (self.train_eval_loader, self.test_loader)
 
         cross_entropy_loss, acc, num_correct = self.evaluate_cross_entropy(
             dataset_subset_type)
@@ -190,7 +194,8 @@ class Experiment:
         all_complexities = {}
         if dataset_subset_type == DatasetSubsetType.TRAIN and compute_all_measures:
             all_complexities = get_all_measures(
-                self.model, self.init_model, data_loader, acc, self.hparams.seed)
+                self.model, self.init_model, self.model_binary,
+                trainNtest_loaders, acc, self.hparams.seed)
 
         self.logger.log_epoch_end(
             self.hparams, self.state, dataset_subset_type, cross_entropy_loss, acc)

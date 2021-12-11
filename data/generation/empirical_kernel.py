@@ -191,8 +191,8 @@ if __name__ == '__main__':
     device = 'cuda' if hparams.use_cuda else 'cpu'
     model = NiN_binary(hparams.model_depth, hparams.model_width,
                 hparams.base_width, hparams.dataset_type)
-    (_,_,_,trainset,_) = get_dataloaders(hparams, config, device)
-    K = empirical_K(model, trainset, 10, device, hparams.seed,
+    (_,train_eval_loader,_) = get_dataloaders(hparams, config, device)
+    K = empirical_K(model, train_eval_loader.dataset, 10, device, hparams.seed,
             n_gpus=1,
             empirical_kernel_batch_size=256,
             truncated_init_dist=False,

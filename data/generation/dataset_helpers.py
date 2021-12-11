@@ -9,7 +9,7 @@ import torchvision as tv
 from .experiment_config import Config, DatasetType, HParams
 
 
-def get_dataloaders(hparams: HParams, config: Config, device: torch.device) -> Tuple[DataLoader, DataLoader, DataLoader, DatasetType, DatasetType]:
+def get_dataloaders(hparams: HParams, config: Config, device: torch.device) -> Tuple[DataLoader, DataLoader, DataLoader]:
     if hparams.dataset_type == DatasetType.CIFAR10:
         dataset = CIFAR10
     elif hparams.dataset_type == DatasetType.SVHN:
@@ -40,7 +40,7 @@ def get_dataloaders(hparams: HParams, config: Config, device: torch.device) -> T
     train_loader = DataLoader(train, batch_size=hparams.batch_size, shuffle=True, num_workers=0)
     train_eval_loader = DataLoader(train, batch_size=5000, shuffle=False, num_workers=0)
     test_loader = DataLoader(test, batch_size=5000, shuffle=False, num_workers=0)
-    return train_loader, train_eval_loader, test_loader, train, test
+    return train_loader, train_eval_loader, test_loader
 
 
 def process_data(hparams: HParams, data_np: np.ndarray, targets_np: np.ndarray, device:
