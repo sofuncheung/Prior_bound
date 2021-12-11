@@ -107,4 +107,4 @@ class NiN_binary(ExperimentBaseModel):
         x = self.avgpool(x)
         x = x.squeeze()
 
-        return x[1] - x[0]
+        return x[:,1] - x[:,0]
