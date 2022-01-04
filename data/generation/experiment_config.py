@@ -102,7 +102,7 @@ class HParams:
     #dataset_type: DatasetType = DatasetType.CIFAR10_binary
     dataset_type: DatasetType = DatasetType.SVHN_binary
     data_seed: Optional[int] = 42
-    train_dataset_size: Optional[int] = 5000
+    train_dataset_size: Optional[int] = 6250
     test_dataset_size: Optional[int] = 10000
     # Training
     batch_size: int = 32
@@ -128,6 +128,7 @@ class HParams:
     def wandb_md5(self):
         dictionary = self.to_tensorboard_dict()
         dictionary['seed'] = 0
+        # This puts experiments under different initializations into the same wandb group
         return hashlib.md5(str(dictionary).encode('utf-8')).hexdigest()
 
 # Configuration which doesn't affect experiment results

@@ -142,15 +142,20 @@ def get_all_measures(
     data_train_plus_test = torch.utils.data.ConcatDataset(
             (trainNtest_loaders[0].dataset,
             trainNtest_loaders[1].dataset))
-    K = empirical_K(model_binary, data_train_plus_test, 10, device_string, seed,
+    K = empirical_K(model_binary, data_train_plus_test,
+            2,
+            #0.1*len(data_train_plus_test),
+            device_string, seed,
             n_gpus=1,
             empirical_kernel_batch_size=5000,
             truncated_init_dist=False,
             store_partial_kernel=False,
             partial_kernel_n_proc=1,
-            partial_kernel_index=0,
+            partial_kernel_index=0
             )
     K = np.array(K.cpu())
+    # gpy EP calculation uses np.float64 internally. So it doesn't matter what precision
+    # you use here.
     K_marg = K[:m, :m]
     def _get_xs_ys_from_dataset(dataset):
         loader = torch.utils.data.DataLoader(

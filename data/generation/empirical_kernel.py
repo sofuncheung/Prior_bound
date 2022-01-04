@@ -50,9 +50,9 @@ def empirical_K(model, data, number_samples, device, seed,
 
     m = len(data)
     if device == 'cuda':
-        covs = torch.zeros(m, m).to(device)
+        covs = torch.zeros([m, m], dtype=torch.float16).to(device)
     else:
-        covs = np.zeros((m,m), dtype=np.float32)
+        covs = np.zeros((m,m), dtype=np.float16)
     local_index = 0 # index of task in a particular precess
     update_chunk = 10000 # Guillermo use 10000
     num_chunks = covs.shape[0]//update_chunk
@@ -60,7 +60,8 @@ def empirical_K(model, data, number_samples, device, seed,
 
     for index in tasks:
         start_time = time.time()
-        print("sample for kernel", index)
+        if index % 100 == 0:
+            print("sample for kernel", index)
 
         if local_index > 0:
             model.apply(weight_reset)
@@ -105,22 +106,22 @@ def empirical_K(model, data, number_samples, device, seed,
                         np.matmul(X[last_bits],X.T))
             else:
                 covs += (1 / X.shape[1]) * np.matmul(X,X.T)
-
         sys.stdout.flush()
         local_index += 1
         gc.collect()
-        print("--- %s seconds ---" % (time.time() - start_time))
+        if index % 100 == 0:
+            print("--- %s seconds ---" % (time.time() - start_time))
 
     if size > 1 and not store_partial_kernel:
         covs1_recv = None
         covs2_recv = None
         if rank == 0: # Do following in the first (main) process
             if device == 'cuda':
-                covs1_recv = torch.zeros_like(covs[:25000,:])
-                covs2_recv = torch.zeros_like(covs[25000:,:])
+                covs1_recv = torch.zeros_like(covs[:25000,:], dtype=torch.float16)
+                covs2_recv = torch.zeros_like(covs[25000:,:], dtype=torch.float16)
             else:
-                covs1_recv = np.zeros_like(covs[:25000,:])
-                covs2_recv = np.zeros_like(covs[25000:,:])
+                covs1_recv = np.zeros_like(covs[:25000,:], dtype=np.float16)
+                covs2_recv = np.zeros_like(covs[25000:,:], dtype=np.float16)
         #print(covs[25000:,:])
         comm.Reduce(covs[:25000,:], covs1_recv, op=MPI.SUM, root=0)
         comm.Reduce(covs[25000:,:], covs2_recv, op=MPI.SUM, root=0)
