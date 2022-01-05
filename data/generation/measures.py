@@ -143,8 +143,8 @@ def get_all_measures(
             (trainNtest_loaders[0].dataset,
             trainNtest_loaders[1].dataset))
     K = empirical_K(model_binary, data_train_plus_test,
-            2,
-            #0.1*len(data_train_plus_test),
+            #2,
+            0.1*len(data_train_plus_test),
             device_string, seed,
             n_gpus=1,
             empirical_kernel_batch_size=5000,
