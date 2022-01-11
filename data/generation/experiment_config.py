@@ -24,8 +24,8 @@ class DatasetSubsetType(IntEnum):
 
 class ComplexityType(Enum):
     # GP based Measures
-    PRIOR = 0
-    MAR_LIK = 1
+    PRIOR = 1
+    MAR_LIK = 2
     # Measures from Fantastic Generalization Measures (equation numbers)
     PARAMS = 20
     INVERSE_MARGIN = 22
@@ -102,7 +102,7 @@ class HParams:
     #dataset_type: DatasetType = DatasetType.CIFAR10_binary
     dataset_type: DatasetType = DatasetType.SVHN_binary
     data_seed: Optional[int] = 42
-    train_dataset_size: Optional[int] = 6250
+    train_dataset_size: Optional[int] = 2000
     test_dataset_size: Optional[int] = 10000
     # Training
     batch_size: int = 32

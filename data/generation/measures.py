@@ -138,7 +138,6 @@ def get_all_measures(
     device_string = 'cuda' if next(model.parameters()).is_cuda else 'cpu'
     m = len(trainNtest_loaders[0].dataset)
 
-    print("GP based measures")
     data_train_plus_test = torch.utils.data.ConcatDataset(
             (trainNtest_loaders[0].dataset,
             trainNtest_loaders[1].dataset))
@@ -210,6 +209,9 @@ def get_all_measures(
     logPS = GP_prob(K_marg, np.array(xs_train), np.array(ys_train))
     log_10PS = logPS * np.log10(np.e)
 
+    print("GP based measures")
+    measures[CT.PRIOR] = torch.tensor(log_10PU, device=device, dtype=torch.float32)
+    measures[CT.MAR_LIK] = torch.tensor(log_10PS, device=device, dtype=torch.float32)
 
     def get_weights_only(model: ExperimentBaseModel) -> List[Tensor]:
         blacklist = {'bias', 'bn'}
@@ -384,6 +386,8 @@ def get_all_measures(
     def adjust_measure(measure: CT, value: float) -> float:
         if measure.name.startswith('LOG_'):
             return 0.5 * (value - np.log(m))
+        elif measure.name in ['PRIOR', 'MAR_LIK']:
+            return -value / m
         else:
             return np.sqrt(value / m)
     return {k: adjust_measure(k, v.item()) for k, v in measures.items()}
