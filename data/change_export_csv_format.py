@@ -15,8 +15,17 @@ def format_data(csv_file):
     data = data.rename(str.lower, axis='columns')
     data = data.rename(slash2dot, axis='columns')
     data = data.drop(data[data.state == 'running'].index)
-    data = data.drop(columns=['state','group', 'created',
-        'updated', 'end time', 'runtime', 'epochs', 'use_cuda'])
+    to_be_dropped = ['state', 'group', 'created',
+            'updated', 'end time', 'runtime', 'epochs', 'use_cuda',
+            'notes', 'user', 'tags', 'runtime', 'sweep',
+            'ce_target', 'ce_target_milestones', 'data_seed',
+            'optimizer_type'
+            ]
+    for i in to_be_dropped:
+        try:
+            data = data.drop(columns=i)
+        except:
+            pass
 
     rename_dic = {'cross_entropy.train': 'cross_entropy',
             'accuracy.train': 'gen.train_acc',
@@ -36,7 +45,7 @@ def format_data(csv_file):
     data['is.high_train_accuracy'] = data['gen.train_acc'] > 0.99
 
     data['hp.dataset'] = data['hp.dataset'].str.replace(
-            'cifar10_binary','cifar-binary')
+            'cifar10_binary','cifar10-binary')
     data['hp.dataset'] = data['hp.dataset'].str.replace(
             'svhn_binary','svhn-binary')
 

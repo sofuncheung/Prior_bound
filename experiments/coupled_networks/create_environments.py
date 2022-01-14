@@ -26,7 +26,7 @@ def create_environments(datasets, testing_set_size, filter_noise=True):
     """
     data = load_data(DATA_PATH)
     data = data.loc[[r["hp.dataset"] in datasets for _, r in data.iterrows()]]  # Select based on dataset
-
+    #print(data)
     # List of hyperparameters
     hps = get_hps(data)
 
