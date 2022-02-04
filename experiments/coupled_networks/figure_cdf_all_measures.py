@@ -143,7 +143,7 @@ def make_figure(datasets, min_ess=12, filter_noise=True):
 
     bins = np.linspace(0, 1, 100)
     f, axes = plt.subplots(ncols=1, nrows=len(ordered_hps), sharex=True, sharey=True)
-    cbar_ax = f.add_axes([.91, .127, .02, .75])
+    cbar_ax = f.add_axes([.91, .127, .02, .75]) # heat map axis
     for ax, hp in zip(axes, ordered_hps):
         z = np.zeros((len(bins), len(ordered_measures)))
         for i, c in enumerate(ordered_measures):
