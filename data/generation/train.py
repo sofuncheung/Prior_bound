@@ -23,10 +23,13 @@ if __name__ == '__main__':
     state: State = args.state
     state.ce_check_milestones = hparams.ce_target_milestones.copy()
 
+    # Above allows you to setup hparams upon running the script
+
     # Run experiment
     device = torch.device('cuda' if hparams.use_cuda else 'cpu')
     logger = WandbLogger(
         'default', hparams.to_tensorboard_dict(), hparams.wandb_md5)
+        # put all experiments which only differ each other in random seeds into one group
 
     def dump_results(epoch, val_eval, train_eval):
         results = {

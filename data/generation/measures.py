@@ -1,3 +1,4 @@
+import sys
 from contextlib import contextmanager
 from copy import deepcopy
 import math
@@ -10,7 +11,8 @@ from torch.utils.data.dataloader import DataLoader
 
 from .experiment_config import ComplexityType as CT
 from .models import ExperimentBaseModel
-
+from .empirical_kernel import empirical_K
+from .GP_prob.GP_prob_gpy import GP_prob
 
 # Adapted from https://github.com/bneyshabur/generalization-bounds/blob/master/measures.py
 
@@ -122,7 +124,8 @@ def _pacbayes_sigma(
 def get_all_measures(
     model: ExperimentBaseModel,
     init_model: ExperimentBaseModel,
-    dataloader: DataLoader,
+    model_binary: ExperimentBaseModel,
+    trainNtest_loaders: Tuple[DataLoader, DataLoader],
     acc: float,
     seed: int,
 ) -> Dict[CT, float]:
@@ -132,7 +135,83 @@ def get_all_measures(
     init_model = _reparam(init_model)
 
     device = next(model.parameters()).device
-    m = len(dataloader.dataset)
+    device_string = 'cuda' if next(model.parameters()).is_cuda else 'cpu'
+    m = len(trainNtest_loaders[0].dataset)
+
+    data_train_plus_test = torch.utils.data.ConcatDataset(
+            (trainNtest_loaders[0].dataset,
+            trainNtest_loaders[1].dataset))
+    K = empirical_K(model_binary, data_train_plus_test,
+            #2,
+            0.1*len(data_train_plus_test),
+            device_string, seed,
+            n_gpus=1,
+            empirical_kernel_batch_size=5000,
+            truncated_init_dist=False,
+            store_partial_kernel=False,
+            partial_kernel_n_proc=1,
+            partial_kernel_index=0
+            )
+    K = np.array(K.cpu())
+    # gpy EP calculation uses np.float64 internally. So it doesn't matter what precision
+    # you use here.
+    K_marg = K[:m, :m]
+    def _get_xs_ys_from_dataset(dataset):
+        loader = torch.utils.data.DataLoader(
+            dataset,
+            batch_size=5000,
+            shuffle=False,
+            num_workers=0,
+            drop_last=False
+            )
+        xs = []
+        ys = []
+        for batch_idx, (inputs, targets) in enumerate(loader):
+            xs.append(inputs.reshape(inputs.shape[0],-1))
+            ys.append(targets)
+        xs = torch.cat(xs, axis=0)
+        ys = torch.cat(ys, axis=0)
+        return (xs,ys)
+
+    def _get_label_prediction(model, dataset):
+        device = next(model.parameters()).device
+        loader = torch.utils.data.DataLoader(
+            dataset,
+            batch_size=5000,
+            shuffle=False,
+            num_workers=0)
+        outputs_list = []
+        for batch_idx, (inputs, targets) in enumerate(loader):
+            inputs = inputs.to(device)
+            with torch.no_grad():
+                logits = model(inputs)
+                pred = logits.data.max(1, keepdim=True)[1]
+                outputs_list.append(pred)
+
+        return torch.cat(outputs_list, axis=0)
+
+    (xs, _) = _get_xs_ys_from_dataset(data_train_plus_test)
+    ys = _get_label_prediction(model, data_train_plus_test)
+    if xs.is_cuda:
+        xs = xs.cpu()
+    if ys.is_cuda:
+        ys = ys.cpu()
+    logPU = GP_prob(K, np.array(xs), np.array(ys))
+    log_10PU = logPU * np.log10(np.e)
+    # Marginal likelihood
+    (xs_train, ys_train) = _get_xs_ys_from_dataset(trainNtest_loaders[0].dataset)
+    if xs_train.is_cuda:
+        xs_train = xs_train.cpu()
+    if ys_train.is_cuda:
+        ys_train = ys_train.cpu()
+    ys_train = [[y] for y in ys_train]
+
+    logPS = GP_prob(K_marg, np.array(xs_train), np.array(ys_train))
+    log_10PS = logPS * np.log10(np.e)
+
+    print("GP based measures")
+    measures[CT.PRIOR] = torch.tensor(log_10PU, device=device, dtype=torch.float32)
+    measures[CT.MAR_LIK] = torch.tensor(log_10PS, device=device, dtype=torch.float32)
 
     def get_weights_only(model: ExperimentBaseModel) -> List[Tensor]:
         blacklist = {'bias', 'bn'}
@@ -182,7 +261,7 @@ def get_all_measures(
             margins.append(margin)
         return torch.cat(margins).kthvalue(m // 10)[0]
 
-    margin = _margin(model, dataloader).abs()
+    margin = _margin(model, trainNtest_loaders[0]).abs()
     measures[CT.INVERSE_MARGIN] = torch.tensor(
         1, device=device) / margin ** 2  # 22
 
@@ -281,7 +360,7 @@ def get_all_measures(
         measures[CT.FRO_OVER_SPEC_FFT].log()  # 30
 
     print("Flatness-based measures")
-    sigma = _pacbayes_sigma(model, dataloader, acc, seed)
+    sigma = _pacbayes_sigma(model, trainNtest_loaders[0], acc, seed)
 
     def _pacbayes_bound(reference_vec: Tensor) -> Tensor:
         return (reference_vec.norm(p=2) ** 2) / (4 * sigma ** 2) + math.log(m / sigma) + 10
@@ -291,7 +370,7 @@ def get_all_measures(
 
     print("Magnitude-aware Perturbation Bounds")
     mag_eps = 1e-3
-    mag_sigma = _pacbayes_sigma(model, dataloader, acc, seed, mag_eps)
+    mag_sigma = _pacbayes_sigma(model, trainNtest_loaders[0], acc, seed, mag_eps)
     omega = num_params
 
     def _pacbayes_mag_bound(reference_vec: Tensor) -> Tensor:
@@ -307,6 +386,8 @@ def get_all_measures(
     def adjust_measure(measure: CT, value: float) -> float:
         if measure.name.startswith('LOG_'):
             return 0.5 * (value - np.log(m))
+        elif measure.name in ['PRIOR', 'MAR_LIK']:
+            return -value / m
         else:
             return np.sqrt(value / m)
     return {k: adjust_measure(k, v.item()) for k, v in measures.items()}
