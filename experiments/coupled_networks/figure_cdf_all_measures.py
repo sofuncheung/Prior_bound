@@ -39,70 +39,103 @@ def get_all_losses(hp, precomp, measure, min_ess=12.):
         warn("Setting the minimum effective sample size to zero will lead to divisions by zero and is not recommended.")
 
     # Load the precomputations
-    hp_idx = precomp["hps"].index(hp)
     hp_combo_id = precomp["hp_combo_id"]
     env_losses = precomp["env_losses"][measure]
     env_weights = precomp["env_weights"]["raw"]
     env_weights_squared = precomp["env_weights"]["squared"]
 
-    # Unique values for the HP
-    values = np.unique([combo[hp_idx] for combo in hp_combo_id.keys()])
+    if hp != 'all':
+        hp_idx = precomp["hps"].index(hp)
+        # Unique values for the HP
+        values = np.unique([combo[hp_idx] for combo in hp_combo_id.keys()])
 
-    all_losses = []
+        all_losses = []
 
-    for i, v1 in enumerate(values):
-        # All points where Hi = v1
-        v1_combos = [h for h in hp_combo_id if h[hp_idx] == v1]
+        for i, v1 in enumerate(values):
+            # All points where Hi = v1
+            v1_combos = [h for h in hp_combo_id if h[hp_idx] == v1]
 
-        for j, v2 in enumerate(values):
-            if v1 == v2 or (isinstance(v1, float) and np.isclose(v1, v2)):
-                continue
+            for j, v2 in enumerate(values):
+                if v1 == v2 or (isinstance(v1, float) and np.isclose(v1, v2)):
+                    continue
 
-            # Generate the coupled hp combos
-            # Hi: v1 -> v2 and the rest (Hj) is constant
-            v2_combos = [v1c[: hp_idx] + (v2,) + v1c[hp_idx + 1:] for v1c in v1_combos]
+                # Generate the coupled hp combos
+                # Hi: v1 -> v2 and the rest (Hj) is constant
+                v2_combos = [v1c[: hp_idx] + (v2,) + v1c[hp_idx + 1:] for v1c in v1_combos]
 
-            # Filter out v1_combos for which the v2_combo doesn't exist (e.g., job didn't finish)
+                # Filter out v1_combos for which the v2_combo doesn't exist (e.g., job didn't finish)
 
-            v1_combos_, v2_combos_, v1_idx, v2_idx = zip(*[(v1c, v2c, hp_combo_id[v1c], hp_combo_id[v2c]) for v1c, v2c
-                                                           in zip(v1_combos, v2_combos) if v2c in hp_combo_id])
+                v1_combos_, v2_combos_, v1_idx, v2_idx = zip(*[(v1c, v2c, hp_combo_id[v1c], hp_combo_id[v2c]) for v1c, v2c
+                                                               in zip(v1_combos, v2_combos) if v2c in hp_combo_id])
 
-            # In original version v1_combos and v2_combos are zipped so each tuple
-            # only differ buy v1 -> v2.
-            # But new version allows any combination between v1_combos and v2_combos.
-            # Averaging over repeats is assume to be done a priori in the precomputation.
-            all_possible_idx_pair = []
-            for v1_i_temp in v1_idx:
-                for v2_i_temp in v2_idx:
-                    all_possible_idx_pair.append((v1_i_temp,v2_i_temp))
+                # In original version v1_combos and v2_combos are zipped so each tuple
+                # only differ buy v1 -> v2.
+                # But new version allows any combination between v1_combos and v2_combos.
+                # Averaging over repeats is assume to be done a priori in the precomputation.
+                all_possible_idx_pair = []
+                for v1_i_temp in v1_idx:
+                    for v2_i_temp in v2_idx:
+                        all_possible_idx_pair.append((v1_i_temp,v2_i_temp))
 
-            # Get weights + sanity check
-            sum_of_weights = np.array([env_weights[x] for x in all_possible_idx_pair])
-            sum_of_squared_weights = np.array(
-                    [env_weights_squared[x] for x in all_possible_idx_pair])
-            sum_of_squared_weights[np.isclose(sum_of_weights, 0)] = 1  # Avoid division by zero and won't change result
-            effective_sample_sizes = sum_of_weights**2 / sum_of_squared_weights
-            assert np.isclose(np.abs(env_weights[(
-                v1_idx[0], v2_idx[0])] - env_weights[(v2_idx[0], v1_idx[0])]).sum(), 0)
+                # Get weights + sanity check
+                sum_of_weights = np.array([env_weights[x] for x in all_possible_idx_pair])
+                sum_of_squared_weights = np.array(
+                        [env_weights_squared[x] for x in all_possible_idx_pair])
+                sum_of_squared_weights[np.isclose(sum_of_weights, 0)] = 1  # Avoid division by zero and won't change result
+                effective_sample_sizes = sum_of_weights**2 / sum_of_squared_weights
+                assert np.isclose(np.abs(env_weights[(
+                    v1_idx[0], v2_idx[0])] - env_weights[(v2_idx[0], v1_idx[0])]).sum(), 0)
 
-            # Get losses + sanity check
-            losses = np.array([env_losses[x] for x in all_possible_idx_pair])
-            assert np.isclose(np.abs(env_losses[(v1_idx[0], v2_idx[0])] - env_losses[(v2_idx[0], v1_idx[0])]).sum(), 0)
+                # Get losses + sanity check
+                losses = np.array([env_losses[x] for x in all_possible_idx_pair])
+                assert np.isclose(np.abs(env_losses[(v1_idx[0], v2_idx[0])] - env_losses[(v2_idx[0], v1_idx[0])]).sum(), 0)
 
-            # Filter out envs for which weight sum <= threshold
-            selector = np.logical_or(np.isclose(effective_sample_sizes, min_ess), effective_sample_sizes > min_ess)
-            losses = losses[selector] / sum_of_weights[selector]  # Normalize weights to sum to 1 in the average
+                # Filter out envs for which weight sum <= threshold
+                selector = np.logical_or(np.isclose(effective_sample_sizes, min_ess), effective_sample_sizes > min_ess)
+                losses = losses[selector] / sum_of_weights[selector]  # Normalize weights to sum to 1 in the average
 
-            # Sanity check
-            if len(losses) > 0:
-                assert np.nanmax(losses) <= 1
-                assert np.nanmin(losses) >= 0
-            all_losses += losses.tolist()
+                # Sanity check
+                if len(losses) > 0:
+                    assert np.nanmax(losses) <= 1
+                    assert np.nanmin(losses) >= 0
+                all_losses += losses.tolist()
 
-    # Sanity check since we should be seeing each pair (v1, v2) twice
-    assert len(all_losses) % 2 == 0
+        # Sanity check since we should be seeing each pair (v1, v2) twice
+        assert len(all_losses) % 2 == 0
 
-    return np.array(all_losses)
+        return np.array(all_losses)
+
+    else:
+        # Get weights + sanity check
+        sum_of_weights = np.array([env_weights[x] for x in env_losses.keys()])
+        sum_of_squared_weights = np.array(
+                [env_weights_squared[x] for x in env_losses.keys()])
+        sum_of_squared_weights[np.isclose(sum_of_weights, 0)] = 1  # Avoid division by zero and won't change result
+        effective_sample_sizes = sum_of_weights**2 / sum_of_squared_weights
+        assert np.isclose(np.abs(env_weights[(0, 1)
+            ] - env_weights[(1, 0)]).sum(), 0)
+
+        # Get losses + sanity check
+        losses = np.array([env_losses[x] for x in env_losses.keys()])
+        assert np.isclose(np.abs(env_losses[(0, 1)] - env_losses[(1, 0)]).sum(), 0)
+
+        # Filter out envs for which weight sum <= threshold
+        selector = np.logical_or(np.isclose(effective_sample_sizes, min_ess), effective_sample_sizes > min_ess)
+        losses = losses[selector] / sum_of_weights[selector]  # Normalize weights to sum to 1 in the average
+
+        # Sanity check
+        if len(losses) > 0:
+            assert np.nanmax(losses) <= 1
+            assert np.nanmin(losses) >= 0
+
+        # Sanity check since we should be seeing each pair (v1, v2) twice
+        assert len(losses) % 2 == 0
+
+        return np.array(losses)
+        # Because in the de-granulated mode, the 'all' envirnoments is no longer the sum
+        # of individual rows, as the same hp-combination might occur
+        # in more than one rows. 
+        pass
 
 
 def make_figure(datasets, min_ess=12, filter_noise=True):
@@ -125,13 +158,10 @@ def make_figure(datasets, min_ess=12, filter_noise=True):
         # HP varies and store this per HP
         complexity_losses_per_hp[c] = {}
         for hp in precomp["hps"]:
-            complexity_losses_per_hp[c][hp] = get_all_losses(hp, precomp, measure=c, min_ess=min_ess)
-        complexity_losses_per_hp[c]["all"] = np.hstack([complexity_losses_per_hp[c][h] for h in
-                                                        complexity_losses_per_hp[c]])
-
-        # Sanity check
-        assert complexity_losses_per_hp[c]["all"].shape[0] == \
-            sum(complexity_losses_per_hp[c][hp].shape[0] for hp in precomp["hps"])
+            complexity_losses_per_hp[c][hp] = get_all_losses(
+                    hp, precomp, measure=c, min_ess=min_ess)
+        complexity_losses_per_hp[c]["all"] = get_all_losses(
+                'all', precomp, measure=c, min_ess=min_ess)
 
     # Order measures by mean sign error over all HPs
     ordered_measures = \
