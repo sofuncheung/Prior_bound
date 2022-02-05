@@ -63,22 +63,30 @@ def get_all_losses(hp, precomp, measure, min_ess=12.):
             v2_combos = [v1c[: hp_idx] + (v2,) + v1c[hp_idx + 1:] for v1c in v1_combos]
 
             # Filter out v1_combos for which the v2_combo doesn't exist (e.g., job didn't finish)
+
             v1_combos_, v2_combos_, v1_idx, v2_idx = zip(*[(v1c, v2c, hp_combo_id[v1c], hp_combo_id[v2c]) for v1c, v2c
                                                            in zip(v1_combos, v2_combos) if v2c in hp_combo_id])
 
-            # Note: Each pair of v1 and v2 HP combos forms an environment where Hi: v1 -> v2 and Hj is constant.
-            #       Averaging over repeats is assume to be done a priori in the precomputation.
+            # In original version v1_combos and v2_combos are zipped so each tuple
+            # only differ buy v1 -> v2.
+            # But new version allows any combination between v1_combos and v2_combos.
+            # Averaging over repeats is assume to be done a priori in the precomputation.
+            all_possible_idx_pair = []
+            for v1_i_temp in v1_idx:
+                for v2_i_temp in v2_idx:
+                    all_possible_idx_pair.append((v1_i_temp,v2_i_temp))
 
             # Get weights + sanity check
-            sum_of_weights = np.array([env_weights[x] for x in zip(v1_idx, v2_idx)])
-            sum_of_squared_weights = np.array([env_weights_squared[x] for x in zip(v1_idx, v2_idx)])
+            sum_of_weights = np.array([env_weights[x] for x in all_possible_idx_pair])
+            sum_of_squared_weights = np.array(
+                    [env_weights_squared[x] for x in all_possible_idx_pair])
             sum_of_squared_weights[np.isclose(sum_of_weights, 0)] = 1  # Avoid division by zero and won't change result
             effective_sample_sizes = sum_of_weights**2 / sum_of_squared_weights
             assert np.isclose(np.abs(env_weights[(
                 v1_idx[0], v2_idx[0])] - env_weights[(v2_idx[0], v1_idx[0])]).sum(), 0)
 
             # Get losses + sanity check
-            losses = np.array([env_losses[x] for x in zip(v1_idx, v2_idx)])
+            losses = np.array([env_losses[x] for x in all_possible_idx_pair])
             assert np.isclose(np.abs(env_losses[(v1_idx[0], v2_idx[0])] - env_losses[(v2_idx[0], v1_idx[0])]).sum(), 0)
 
             # Filter out envs for which weight sum <= threshold

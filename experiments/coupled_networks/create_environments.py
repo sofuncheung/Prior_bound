@@ -55,10 +55,19 @@ def create_environments(datasets, testing_set_size, filter_noise=True):
         for h2, (all_c2, g2) in hp_c:
             h2_id = hp_combo_id[h2]
 
+            # This is original "GRANULATED" way of comparing different hps.
             # Dont compare pairs of identical HPs or those that differ by more than 1 value
-            if (sum(not isclose(h1[i], h2[i]) for i in types_float_idx) +
-                    sum(h1[i] != h2[i] for i in types_no_float_idx)) != 1:
+            # if (sum(not isclose(h1[i], h2[i]) for i in types_float_idx) +
+            #         sum(h1[i] != h2[i] for i in types_no_float_idx)) != 1:
+            #     continue
+
+            # This is if we consider every possible combination of HPs, as long as
+            # They are not identical. (Even if they differ by more than one hps)
+
+            if sum(not isclose(h1[i], h2[i]) for i in types_float_idx) == 0 and sum(
+                    h1[i] != h2[i] for i in types_no_float_idx) == 0:
                 continue
+
 
             # Attribute a weight to the current pair of HPs based on the generalization gaps
             if filter_noise:
