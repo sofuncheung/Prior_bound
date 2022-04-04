@@ -18,6 +18,17 @@ def get_dataloaders(hparams: HParams, config: Config, device: torch.device) -> T
         dataset = CIFAR10_binary
     elif hparams.dataset_type == DatasetType.SVHN_binary:
         dataset = SVHN_binary
+    elif hparams.dataset_type == DatasetType.MNIST_binary:
+        dataset = MNIST_binary
+    elif hparams.dataset_type == DatasetType.FashionMNIST_binary:
+        dataset = FashionMNIST_binary
+    elif hparams.dataset_type == DatasetType.KMNIST_binary:
+        dataset = KMNIST_binary
+    elif hparams.dataset_type == DatasetType.EMNIST_binary:
+        dataset = EMNIST_binary
+    elif hparams.dataset_type == DatasetType.PCAM:
+        dataset = PCAM
+
     else:
         raise KeyError
 
@@ -33,9 +44,15 @@ def get_dataloaders(hparams: HParams, config: Config, device: torch.device) -> T
     train_key = {'split': 'train'} if hparams.dataset_type == DatasetType.SVHN else {'train': True}
     test_key = {'split': 'test'} if hparams.dataset_type == DatasetType.SVHN else {'train': False}
     '''
-
-    train = dataset(hparams, config, device, download=True, **train_key)
-    test = dataset(hparams, config, device, download=True, **test_key)
+    if hparams.dataset_type == DatasetType.EMNIST_binary:
+        # Using EMNIST-Digits only
+        train = dataset(hparams, config, device, 'digits',
+                download=True, **train_key)
+        test = dataset(hparams, config, device, 'digits',
+                download=True, **test_key)
+    else:
+        train = dataset(hparams, config, device, download=True, **train_key)
+        test = dataset(hparams, config, device, download=True, **test_key)
 
     train_loader = DataLoader(train, batch_size=hparams.batch_size, shuffle=True, num_workers=0)
     train_eval_loader = DataLoader(train, batch_size=5000, shuffle=False, num_workers=0)
@@ -60,7 +77,7 @@ def process_data(hparams: HParams, data_np: np.ndarray, targets_np: np.ndarray, 
         targets_np = np.where(targets_np < 5, 0, 1)
 
     # Numpy -> Torch
-    data = torch.tensor(data_np, dtype=torch.float32)
+    data = torch.tensor(data_np, dtype=torch.float32) # Memory checkpoint
     targets = torch.tensor(targets_np, dtype=torch.long)
 
     # Resize dataset
@@ -95,8 +112,7 @@ class SVHN(tv.datasets.SVHN):
         self.data, self.labels = process_data(hparams, self.data, self.labels, device, self.split == 'train')
 
     def __getitem__(self, index):
-
-                return self.data[index], self.labels[index]
+        return self.data[index], self.labels[index]
 
 class CIFAR10_binary(tv.datasets.CIFAR10):
     def __init__(self, hparams: HParams, config: Config, device: torch.device, *args, **kwargs):
@@ -118,3 +134,68 @@ class SVHN_binary(tv.datasets.SVHN):
 
     def __getitem__(self, index):
         return self.data[index], self.labels[index]
+
+
+class MNIST_binary(tv.datasets.MNIST):
+    def __init__(self, hparams: HParams, config: Config, device: torch.device, *args, **kwargs):
+        super().__init__(config.data_dir, *args, **kwargs)
+        self.data = np.expand_dims(self.data, -1) # NHW -> NHWC
+        self.data, self.targets = process_data(hparams, self.data, np.array(self.targets),
+                device, self.train, binary=True)
+
+    def __getitem__(self, index):
+        return self.data[index], self.targets[index]
+
+
+class FashionMNIST_binary(tv.datasets.FashionMNIST):
+    def __init__(self, hparams: HParams, config: Config, device: torch.device, *args, **kwargs):
+        super().__init__(config.data_dir, *args, **kwargs)
+        self.data = np.expand_dims(self.data, -1) # NHW -> NHWC
+        self.data, self.targets = process_data(hparams, self.data, np.array(self.targets),
+                device, self.train, binary=True)
+
+    def __getitem__(self, index):
+        return self.data[index], self.targets[index]
+
+
+class KMNIST_binary(tv.datasets.KMNIST):
+    def __init__(self, hparams: HParams, config: Config, device: torch.device, *args, **kwargs):
+        super().__init__(config.data_dir, *args, **kwargs)
+        self.data = np.expand_dims(self.data, -1) # NHW -> NHWC
+        self.data, self.targets = process_data(hparams, self.data, np.array(self.targets),
+                device, self.train, binary=True)
+
+    def __getitem__(self, index):
+        return self.data[index], self.targets[index]
+
+
+class EMNIST_binary(tv.datasets.EMNIST):
+    def __init__(self, hparams: HParams, config: Config, device: torch.device, *args, **kwargs):
+        super().__init__(config.data_dir, *args, **kwargs)
+        self.data = np.expand_dims(self.data, -1) # NHW -> NHWC
+        self.data, self.targets = process_data(hparams, self.data, np.array(self.targets),
+                device, self.train, binary=True)
+
+    def __getitem__(self, index):
+        return self.data[index], self.targets[index]
+
+'''
+class PCAM(tv.datasets.PCAM):
+    def __init__(self, hparams: HParams, config: Config, device: torch.device, *args, **kwargs):
+        super().__init__(config.data_dir, *args, **kwargs)
+        images_file = self._FILES[self._split]["images"][0]
+        with self.h5py.File(self._base_folder / images_file) as images_data:
+            self.data = images_data["x"] # NHWC 0-255
+        targets_file = self._FILES[self._split]["targets"][0]
+        with self.h5py.File(self._base_folder / targets_file) as targets_data:
+            self.targets = int(np.flatten(targets_data["y"]))
+            # targets_data["y"] is of dimension (N, 1, 1, 1)
+        self.data, self.targets = process_data(hparams, self.data, self.targets,
+                device, self.split == 'train', binary=False)
+        # Note: PCAM is actually binary but here binary=False.
+        # That's because here binary means "binaring 10-class to 2-class",
+        # which PCAM doesn't need.
+
+    def __getitem__(self, index):
+        return self.data[index], self.targets[index]
+'''

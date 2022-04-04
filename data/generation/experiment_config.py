@@ -11,6 +11,11 @@ class DatasetType(Enum):
     SVHN = (2, (3, 32, 32), 10)
     CIFAR10_binary = (3, (3, 32, 32), 2)
     SVHN_binary = (4, (3, 32, 32), 2)
+    MNIST_binary = (5, (1, 28, 28), 2)
+    FashionMNIST_binary = (6, (1, 28, 28), 2)
+    KMNIST_binary = (7, (1, 28, 28), 2)
+    EMNIST_binary = (8, (1, 28, 28), 2)
+    PCAM = (9, (3, 96, 96), 2)
 
     def __init__(self, id: int, image_shape: Tuple[int, int, int], num_classes: int):
         self.D = image_shape
