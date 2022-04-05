@@ -19,7 +19,8 @@ def format_data(csv_file):
             'updated', 'end time', 'runtime', 'epochs', 'use_cuda',
             'notes', 'user', 'tags', 'runtime', 'sweep',
             'ce_target', 'ce_target_milestones', 'data_seed',
-            'optimizer_type'
+            'optimizer_type', 'id', 'job type', 'hostname',
+            'description','commit','github', 'gpu count', 'gpu type'
             ]
     for i in to_be_dropped:
         try:
@@ -44,6 +45,8 @@ def format_data(csv_file):
     data['is.converged'] = data['cross_entropy'] < 0.01
     data['is.high_train_accuracy'] = data['gen.train_acc'] > 0.99
 
+    data['is.full_train_accuracy'] = data['gen.train_acc'] == 1
+
     data['hp.dataset'] = data['hp.dataset'].str.replace(
             'cifar10_binary','cifar10-binary')
     data['hp.dataset'] = data['hp.dataset'].str.replace(
@@ -54,4 +57,4 @@ def format_data(csv_file):
 
 
 if __name__ == '__main__':
-    format_data('180_runs.csv')
+    format_data('wandb_export_2022-04-02T18_28_03.077+01_00.csv')
