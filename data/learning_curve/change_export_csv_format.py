@@ -1,4 +1,5 @@
 import pandas as pd
+import os
 
 
 def slash2dot(string):
@@ -8,6 +9,30 @@ def slash2dot(string):
     else:
         return string
 
+def average_by_group(data):
+    '''
+    NOT WORKING!!!
+    averageing all columns if two experiments record belong to the same group
+    (meaning they only differ by random seeds)
+    '''
+    raise NotImplementedError()
+
+    group_list = set(data['group'])
+    df_temp_list = []
+    for g in group_list:
+        rows_of_same_group = []
+        for _, row in data.iterrows():
+            if row['group'] == g:
+                rows_of_same_group.append(row)
+        print(rows_of_same_group)
+        df_temp = pd.concat(rows_of_same_group, axis=0, ignore_index=True)
+        print(df_temp)
+        df_temp_averaged = df_temp.mean()
+        de_temp_list.append(df_temp_averaged)
+
+    return(pd.concat(df_temp_list, axis=0, ignore_index=True))
+
+
 def format_data(csv_file):
 
     data = pd.read_csv(csv_file)
@@ -15,7 +40,7 @@ def format_data(csv_file):
     data = data.rename(str.lower, axis='columns')
     data = data.rename(slash2dot, axis='columns')
     data = data.drop(data[data.state == 'running'].index)
-    to_be_dropped = ['state', 'group', 'created',
+    to_be_dropped = ['state', 'created',
             'updated', 'end time', 'runtime', 'epochs', 'use_cuda',
             'notes', 'user', 'tags', 'runtime', 'sweep',
             'ce_target', 'ce_target_milestones', 'data_seed',
@@ -51,10 +76,20 @@ def format_data(csv_file):
             'cifar10_binary','cifar10-binary')
     data['hp.dataset'] = data['hp.dataset'].str.replace(
             'svhn_binary','svhn-binary')
+    data['hp.dataset'] = data['hp.dataset'].str.replace(
+            'mnist_binary','mnist-binary')
+    data['hp.dataset'] = data['hp.dataset'].str.replace(
+            'fashionmnist_binary','fashionmnist-binary')
 
 
     data.to_csv('formatted.csv',index=False)
 
 
 if __name__ == '__main__':
-    format_data('wandb_export_2022-04-02T18_28_03.077+01_00.csv')
+    wandb_raw_files = [f for f in os.listdir() if f.startswith('wandb_export_')]
+    if len(wandb_raw_files) != 1:
+        raise FileNotFoundError()
+    else:
+        wandb_raw_file = wandb_raw_files[0]
+
+    format_data(wandb_raw_file)
