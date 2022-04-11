@@ -142,6 +142,9 @@ class MNIST_binary(tv.datasets.MNIST):
         self.data = np.expand_dims(self.data, -1) # NHW -> NHWC
         self.data, self.targets = process_data(hparams, self.data, np.array(self.targets),
                 device, self.train, binary=True)
+        #print(self.data.shape)
+        #print(self.targets.shape)
+        #print('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
 
     def __getitem__(self, index):
         return self.data[index], self.targets[index]

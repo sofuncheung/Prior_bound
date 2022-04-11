@@ -10,6 +10,7 @@ from tqdm import trange
 from .dataset_helpers import get_dataloaders
 from .experiment_config import (
     Config,
+    ModelType,
     DatasetSubsetType,
     HParams,
     State,
@@ -18,7 +19,7 @@ from .experiment_config import (
 )
 from .logs import BaseLogger, Printer
 from .measures import get_all_measures
-from .models import NiN, NiN_binary
+from .models import *
 
 
 class Experiment:
@@ -51,14 +52,12 @@ class Experiment:
         self.result_save_callback = result_save_callback
 
         # Model
-        self.model = NiN(self.hparams.model_depth, self.hparams.model_width,
-                         self.hparams.base_width, self.hparams.dataset_type)
+        self.model = self._get_model(self.hparams)
         print("Number of parameters", sum(p.numel()
               for p in self.model.parameters() if p.requires_grad))
         self.model.to(device)
         self.init_model = deepcopy(self.model)
-        self.model_binary = NiN_binary(hparams.model_depth, hparams.model_width,
-                hparams.base_width, hparams.dataset_type)
+        self.model_binary = self._get_model_binary(self.hparams)
 
 
         # Optimizer
@@ -78,6 +77,18 @@ class Experiment:
         (self.train_loader, self.train_eval_loader,
                 self.test_loader) = get_dataloaders(
                         self.hparams, self.config, self.device)
+
+    @staticmethod
+    def _get_model(hparams: HParams) -> ModelType:
+        if hparams.model_type == ModelType.FCN:
+            return FCN(hparams.model_width_tuple, hparams.dataset_type)
+
+
+    @staticmethod
+    def _get_model_binary(hparams: HParams) -> ModelType:
+        if hparams.model_type == ModelType.FCN:
+            return FCN_binary(hparams.model_width_tuple, hparams.dataset_type)
+
 
     def save_state(self, postfix: str = '') -> None:
         checkpoint_file = self.config.checkpoint_dir / \

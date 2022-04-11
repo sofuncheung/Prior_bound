@@ -27,6 +27,11 @@ class DatasetSubsetType(IntEnum):
     TEST = 1
 
 
+class ModelType(Enum):
+    NiN = 0
+    FCN = 1
+
+
 class ComplexityType(Enum):
     # GP based Measures
     PRIOR = 1
@@ -100,19 +105,20 @@ class HParams:
     seed: int = 0
     use_cuda: bool = True
     # Model
-    model_depth: int = 2
-    model_width: int = 8
-    base_width: int = 25
+    model_type: ModelType = ModelType.FCN
+    # model_depth: int = 2
+    model_width_tuple: tuple = (1024, 1024)
+    # base_width: int = 25
     # Dataset
     #dataset_type: DatasetType = DatasetType.CIFAR10_binary
-    dataset_type: DatasetType = DatasetType.SVHN_binary
+    dataset_type: DatasetType = DatasetType.MNIST_binary
     data_seed: Optional[int] = 42
     train_dataset_size: Optional[int] = 2000
     test_dataset_size: Optional[int] = 10000
     # Training
     batch_size: int = 32
     epochs: int = 300
-    optimizer_type: OptimizerType = OptimizerType.SGD_MOMENTUM
+    optimizer_type: OptimizerType = OptimizerType.ADAM
     lr: float = 0.01
     # Cross-entropy stopping criterion
     ce_target: Optional[float] = 0.01

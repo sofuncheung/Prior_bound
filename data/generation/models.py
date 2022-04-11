@@ -79,7 +79,7 @@ class NiN_binary(ExperimentBaseModel):
     def __init__(self, depth: int, width: int, base_width: int, dataset_type: DatasetType) -> None:
         super().__init__(dataset_type)
 
-        assert self.dataset_type.K ==2, "NiN_binary can only be used with two logits"
+        assert self.dataset_type.K == 2, "NiN_binary can only be used with two logits"
 
         self.base_width = base_width
 
@@ -108,3 +108,51 @@ class NiN_binary(ExperimentBaseModel):
         x = x.squeeze()
 
         return x[:,1] - x[:,0]
+
+
+class FCN(ExperimentBaseModel):
+    def __init__(self, width_tuple: tuple, dataset_type: DatasetType) -> None:
+        super().__init__(dataset_type)
+
+        input_dim = calculate_production(self.dataset_type.D)
+
+        self.model = [nn.Flatten()]
+        self.model.append(nn.Linear(input_dim, width_tuple[0]))
+        self.model.append(nn.ReLU(inplace=True))
+        for i in range(len(width_tuple) - 1):
+            self.model.append(nn.Linear(width_tuple[i], width_tuple[i+1]))
+            self.model.append(nn.ReLU(inplace=True))
+        self.model.append(nn.Linear(width_tuple[i+1], self.dataset_type.K))
+        self.model = nn.Sequential(*self.model)
+
+    def forward(self, x):
+        return self.model(x)
+
+
+class FCN_binary(ExperimentBaseModel):
+    def __init__(self, width_tuple: tuple, dataset_type: DatasetType) -> None:
+        super().__init__(dataset_type)
+
+        input_dim = calculate_production(self.dataset_type.D)
+
+        self.model = [nn.Flatten()]
+        self.model.append(nn.Linear(input_dim, width_tuple[0]))
+        self.model.append(nn.ReLU(inplace=True))
+        for i in range(len(width_tuple) - 1):
+            self.model.append(nn.Linear(width_tuple[i], width_tuple[i+1]))
+            self.model.append(nn.ReLU(inplace=True))
+        self.model.append(nn.Linear(width_tuple[i+1], self.dataset_type.K))
+        self.model = nn.Sequential(*self.model)
+
+    def forward(self, x):
+        x = self.model(x)
+        return x[:,1] - x[:,0]
+
+
+def calculate_production(t: tuple) -> int:
+    p = 1
+    for i in t:
+        p = p * i
+
+    return p
+
