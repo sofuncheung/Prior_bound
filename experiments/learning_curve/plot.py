@@ -23,6 +23,7 @@ SPECTRAL_BOUNDS = ['complexity.log_spec_init_main_fft',
                    'complexity.log_prod_of_spec_over_margin_fft',
                    'complexity.log_prod_of_spec_fft',
                    'complexity.fro_over_spec_fft',
+                   'complexity.dist_spec_init_fft',
                    'complexity.log_sum_of_spec_over_margin_fft',
                    'complexity.log_sum_of_spec_fft']
 FROBENIUS_BOUNDS = ['complexity.log_prod_of_fro_over_margin',
@@ -30,7 +31,6 @@ FROBENIUS_BOUNDS = ['complexity.log_prod_of_fro_over_margin',
                     'complexity.log_sum_of_fro_over_margin',
                     'complexity.log_sum_of_fro',
                     'complexity.fro_dist',
-                    'complexity.dist_spec_init_fft',
                     'complexity.param_norm']
 PATH_NORM_MEASURES = ['complexity.path_norm',
                       'complexity.path_norm_over_margin']
