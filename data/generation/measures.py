@@ -10,6 +10,7 @@ from torch import Tensor
 from torch.utils.data.dataloader import DataLoader
 
 from .experiment_config import ComplexityType as CT
+from .experiment_config import ModelType
 from .models import ExperimentBaseModel
 from .empirical_kernel import empirical_K
 from .GP_prob.GP_prob_gpy import GP_prob
@@ -128,6 +129,7 @@ def get_all_measures(
     trainNtest_loaders: Tuple[DataLoader, DataLoader],
     acc: float,
     seed: int,
+    model_type: ModelType
 ) -> Dict[CT, float]:
     measures = {}
 
@@ -231,7 +233,7 @@ def get_all_measures(
 
     def get_reshaped_weights(weights: List[Tensor]) -> List[Tensor]:
         # If the weight is a tensor (e.g. a 4D Conv2d weight), it will be reshaped to a 2D matrix
-        return [p.view(p.shape[0], -1) for p in weights]
+        return [p.view(p.shape[0], -1) for p in weights] # p.shape[0] = number of out_features
 
     reshaped_weights = get_reshaped_weights(weights)
     dist_reshaped_weights = get_reshaped_weights(dist_init_weights)
@@ -269,27 +271,64 @@ def get_all_measures(
     fro_norms = torch.cat([p.norm('fro').unsqueeze(0) **
                           2 for p in reshaped_weights])
     spec_norms = torch.cat(
-        [p.svd().S.max().unsqueeze(0) ** 2 for p in reshaped_weights])
+        [p.svd().S.max().unsqueeze(0) ** 2 for p in reshaped_weights]) # Largest singular value
     dist_fro_norms = torch.cat(
         [p.norm('fro').unsqueeze(0) ** 2 for p in dist_reshaped_weights])
     dist_spec_norms = torch.cat(
         [p.svd().S.max().unsqueeze(0) ** 2 for p in dist_reshaped_weights])
 
-    print("Approximate Spectral Norm")
-    # Note that these use an approximation from [Yoshida and Miyato, 2017]
-    # https://arxiv.org/abs/1705.10941 (Section 3.2, Convolutions)
-    measures[CT.LOG_PROD_OF_SPEC] = spec_norms.log().sum()  # 32
-    measures[CT.LOG_PROD_OF_SPEC_OVER_MARGIN] = measures[CT.LOG_PROD_OF_SPEC] - \
-        2 * margin.log()  # 31
-    measures[CT.LOG_SPEC_INIT_MAIN] = measures[CT.LOG_PROD_OF_SPEC_OVER_MARGIN] + \
-        (dist_fro_norms / spec_norms).sum().log()  # 29
-    measures[CT.FRO_OVER_SPEC] = (fro_norms / spec_norms).sum()  # 33
-    measures[CT.LOG_SPEC_ORIG_MAIN] = measures[CT.LOG_PROD_OF_SPEC_OVER_MARGIN] + \
-        measures[CT.FRO_OVER_SPEC].log()  # 30
-    measures[CT.LOG_SUM_OF_SPEC_OVER_MARGIN] = math.log(
-        d) + (1/d) * (measures[CT.LOG_PROD_OF_SPEC] - 2 * margin.log())  # 34
-    measures[CT.LOG_SUM_OF_SPEC] = math.log(
-        d) + (1/d) * measures[CT.LOG_PROD_OF_SPEC]  # 35
+    if model_type == ModelType.FCN:
+        print("Approximate Spectral Norm")
+        # Note that these use an approximation from [Yoshida and Miyato, 2017]
+        # https://arxiv.org/abs/1705.10941 (Section 3.2, Convolutions)
+        measures[CT.LOG_PROD_OF_SPEC] = spec_norms.log().sum()  # 32
+        measures[CT.LOG_PROD_OF_SPEC_OVER_MARGIN] = measures[CT.LOG_PROD_OF_SPEC] - \
+            2 * margin.log()  # 31
+        measures[CT.LOG_SPEC_INIT_MAIN] = measures[CT.LOG_PROD_OF_SPEC_OVER_MARGIN] + \
+            (dist_fro_norms / spec_norms).sum().log()  # 29
+        measures[CT.FRO_OVER_SPEC] = (fro_norms / spec_norms).sum()  # 33
+        measures[CT.LOG_SPEC_ORIG_MAIN] = measures[CT.LOG_PROD_OF_SPEC_OVER_MARGIN] + \
+            measures[CT.FRO_OVER_SPEC].log()  # 30
+        measures[CT.LOG_SUM_OF_SPEC_OVER_MARGIN] = math.log(
+            d) + (1/d) * (measures[CT.LOG_PROD_OF_SPEC] - 2 * margin.log())  # 34
+        measures[CT.LOG_SUM_OF_SPEC] = math.log(
+            d) + (1/d) * measures[CT.LOG_PROD_OF_SPEC]  # 35
+    else:
+        print("Exact Spectral Norm")
+        # Proposed in https://arxiv.org/abs/1805.10408
+        # Adapted from https://github.com/brain-research/conv-sv/blob/master/conv2d_singular_values.py#L52
+
+        def _spectral_norm_fft(kernel: Tensor, input_shape: Tuple[int, int]) -> Tensor:
+            # PyTorch conv2d filters use Shape(out,in,kh,kw)
+            # [Sedghi 2018] code expects filters of Shape(kh,kw,in,out)
+            # Pytorch doesn't support complex FFT and SVD, so we do this in numpy
+            np_kernel = np.einsum('oihw->hwio', kernel.data.cpu().numpy())
+            transforms = np.fft.fft2(np_kernel, input_shape, axes=[
+                                     0, 1])  # Shape(ih,iw,in,out)
+            singular_values = np.linalg.svd(
+                transforms, compute_uv=False)  # Shape(ih,iw,min(in,out))
+            spec_norm = singular_values.max()
+            return torch.tensor(spec_norm, device=kernel.device)
+
+        input_shape = (model.dataset_type.D[1], model.dataset_type.D[2])
+        fft_spec_norms = torch.cat(
+            [_spectral_norm_fft(p, input_shape).unsqueeze(0) ** 2 for p in weights])
+        fft_dist_spec_norms = torch.cat([_spectral_norm_fft(
+            p, input_shape).unsqueeze(0) ** 2 for p in dist_init_weights])
+
+        measures[CT.LOG_PROD_OF_SPEC_FFT] = fft_spec_norms.log().sum()  # 32
+        measures[CT.LOG_PROD_OF_SPEC_OVER_MARGIN_FFT] = measures[CT.LOG_PROD_OF_SPEC_FFT] - \
+            2 * margin.log()  # 31
+        measures[CT.FRO_OVER_SPEC_FFT] = (fro_norms / fft_spec_norms).sum()  # 33
+        measures[CT.LOG_SUM_OF_SPEC_OVER_MARGIN_FFT] = math.log(
+            d) + (1/d) * (measures[CT.LOG_PROD_OF_SPEC_FFT] - 2 * margin.log())  # 34
+        measures[CT.LOG_SUM_OF_SPEC_FFT] = math.log(
+            d) + (1/d) * measures[CT.LOG_PROD_OF_SPEC_FFT]  # 35
+        measures[CT.DIST_SPEC_INIT_FFT] = fft_dist_spec_norms.sum()  # 41
+        measures[CT.LOG_SPEC_INIT_MAIN_FFT] = measures[CT.LOG_PROD_OF_SPEC_OVER_MARGIN_FFT] + \
+            (dist_fro_norms / fft_spec_norms).sum().log()  # 29
+        measures[CT.LOG_SPEC_ORIG_MAIN_FFT] = measures[CT.LOG_PROD_OF_SPEC_OVER_MARGIN_FFT] + \
+            measures[CT.FRO_OVER_SPEC_FFT].log()  # 30
 
     print("Frobenius Norm")
     measures[CT.LOG_PROD_OF_FRO] = fro_norms.log().sum()  # 37
@@ -322,42 +361,6 @@ def get_all_measures(
     measures[CT.PATH_NORM] = _path_norm(model)  # 44
     measures[CT.PATH_NORM_OVER_MARGIN] = measures[CT.PATH_NORM] / \
         margin ** 2  # 43
-
-    print("Exact Spectral Norm")
-    # Proposed in https://arxiv.org/abs/1805.10408
-    # Adapted from https://github.com/brain-research/conv-sv/blob/master/conv2d_singular_values.py#L52
-
-    def _spectral_norm_fft(kernel: Tensor, input_shape: Tuple[int, int]) -> Tensor:
-        # PyTorch conv2d filters use Shape(out,in,kh,kw)
-        # [Sedghi 2018] code expects filters of Shape(kh,kw,in,out)
-        # Pytorch doesn't support complex FFT and SVD, so we do this in numpy
-        np_kernel = np.einsum('oihw->hwio', kernel.data.cpu().numpy())
-        transforms = np.fft.fft2(np_kernel, input_shape, axes=[
-                                 0, 1])  # Shape(ih,iw,in,out)
-        singular_values = np.linalg.svd(
-            transforms, compute_uv=False)  # Shape(ih,iw,min(in,out))
-        spec_norm = singular_values.max()
-        return torch.tensor(spec_norm, device=kernel.device)
-
-    input_shape = (model.dataset_type.D[1], model.dataset_type.D[2])
-    fft_spec_norms = torch.cat(
-        [_spectral_norm_fft(p, input_shape).unsqueeze(0) ** 2 for p in weights])
-    fft_dist_spec_norms = torch.cat([_spectral_norm_fft(
-        p, input_shape).unsqueeze(0) ** 2 for p in dist_init_weights])
-
-    measures[CT.LOG_PROD_OF_SPEC_FFT] = fft_spec_norms.log().sum()  # 32
-    measures[CT.LOG_PROD_OF_SPEC_OVER_MARGIN_FFT] = measures[CT.LOG_PROD_OF_SPEC_FFT] - \
-        2 * margin.log()  # 31
-    measures[CT.FRO_OVER_SPEC_FFT] = (fro_norms / fft_spec_norms).sum()  # 33
-    measures[CT.LOG_SUM_OF_SPEC_OVER_MARGIN_FFT] = math.log(
-        d) + (1/d) * (measures[CT.LOG_PROD_OF_SPEC_FFT] - 2 * margin.log())  # 34
-    measures[CT.LOG_SUM_OF_SPEC_FFT] = math.log(
-        d) + (1/d) * measures[CT.LOG_PROD_OF_SPEC_FFT]  # 35
-    measures[CT.DIST_SPEC_INIT_FFT] = fft_dist_spec_norms.sum()  # 41
-    measures[CT.LOG_SPEC_INIT_MAIN_FFT] = measures[CT.LOG_PROD_OF_SPEC_OVER_MARGIN_FFT] + \
-        (dist_fro_norms / fft_spec_norms).sum().log()  # 29
-    measures[CT.LOG_SPEC_ORIG_MAIN_FFT] = measures[CT.LOG_PROD_OF_SPEC_OVER_MARGIN_FFT] + \
-        measures[CT.FRO_OVER_SPEC_FFT].log()  # 30
 
     print("Flatness-based measures")
     sigma = _pacbayes_sigma(model, trainNtest_loaders[0], acc, seed)

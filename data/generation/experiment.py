@@ -206,7 +206,7 @@ class Experiment:
         if dataset_subset_type == DatasetSubsetType.TRAIN and compute_all_measures:
             all_complexities = get_all_measures(
                 self.model, self.init_model, self.model_binary,
-                trainNtest_loaders, acc, self.hparams.seed)
+                trainNtest_loaders, acc, self.hparams.seed, self.hparams.model_type)
 
         self.logger.log_epoch_end(
             self.hparams, self.state, dataset_subset_type, cross_entropy_loss, acc)
