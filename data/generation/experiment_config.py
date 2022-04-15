@@ -94,8 +94,10 @@ class State:
     batch: int = 1
     global_batch: int = 1
     converged: bool = False
-    ce_check_freq: int = 0
+    check_freq: int = 0
     ce_check_milestones: Optional[List[float]] = None
+    acc_check_milestones: Optional[List[float]] = None
+
 
 # Hyperparameters that uniquely determine the experiment
 
@@ -117,13 +119,24 @@ class HParams:
     test_dataset_size: Optional[int] = 10000
     # Training
     batch_size: int = 32
-    epochs: int = 300
+    epochs: int = 500
     optimizer_type: OptimizerType = OptimizerType.ADAM
     lr: float = 0.01
+
+    # Stopping criterion
+    stop_by_full_train_acc: bool = True # Stop training when reaching 100% training accuracy
+    # If this is set to be true, then ce_target* would be neglected.
+
+    # Accuracy stopping criterion
+    acc_target: float = 1.0
+    acc_target_milestones: Optional[List[float]] = field(
+            default_factory=lambda: [0.9, 0.95, 0.99])
+
     # Cross-entropy stopping criterion
     ce_target: Optional[float] = 0.01
     ce_target_milestones: Optional[List[float]] = field(
         default_factory=lambda: [0.05, 0.025, 0.015])
+        # these two would be neglected if stop_by_full_train_acc=True
 
     def to_tensorboard_dict(self) -> dict:
         d = asdict(self)

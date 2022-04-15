@@ -105,10 +105,12 @@ class Experiment:
 
     def _train_epoch(self) -> None:
         self.model.train()
-        ce_check_batches = [(len(self.train_loader)//(2**(self.state.ce_check_freq))) * (i+1)
-                            for i in range(2**(self.state.ce_check_freq)-1)]
-        ce_check_batches.append(len(self.train_loader)-1)
-
+        check_batches = [(len(self.train_loader)//(2**(self.state.check_freq))) * (i+1)
+                            for i in range(2**(self.state.check_freq)-1)]
+        check_batches.append(len(self.train_loader)-1) # mandatorily check last batch
+        if 2**(self.state.check_freq) > len(self.train_loader):
+            check_batches = [i for i in range(len(self.train_loader))]
+            # when state.check_freq is high enough, check every batch
         for batch_idx, (data, target) in enumerate(self.train_loader):
             data, target = data.to(self.device, non_blocking=True), target.to(
                 self.device, non_blocking=True)
@@ -135,22 +137,41 @@ class Experiment:
             self.logger.log_batch_end(
                 self.config, self.state, cross_entropy, loss)
 
-            # Cross-entropy stopping check
-            if batch_idx == ce_check_batches[0]:
-                ce_check_batches.pop(0)
+            if batch_idx == check_batches[0]:
+                check_batches.pop(0)
                 is_last_batch = batch_idx == (len(self.train_loader)-1)
-                dataset_ce = self.evaluate_cross_entropy(
-                    DatasetSubsetType.TRAIN, log=is_last_batch)[0]
-                if dataset_ce < self.hparams.ce_target:
-                    self.state.converged = True
+                if self.hparams.stop_by_full_train_acc == True:
+                    # Accuracy stopping check
+                    train_acc = self.evaluate_cross_entropy(
+                            DatasetSubsetType.TRAIN, log=is_last_batch)[1]
+                    if train_acc == self.hparams.acc_target:
+                        self.state.converged = True
+                    else:
+                        while (len(self.state.acc_check_milestones) > 0
+                        and train_acc >= self.state.acc_check_milestones[0]):
+                            passed_milestone = self.state.acc_check_milestones[0]
+                            print(f'passed acc milestone {passed_milestone}')
+                            self.state.acc_check_milestones.pop(0)
+                            self.state.check_freq += 1
+                            # if passed one milestone, double the check frequency
+                            if self.config.save_epoch_freq is not None:
+                                self.save_state(f'_acc_{passed_milestone}')
+
                 else:
-                    while len(self.state.ce_check_milestones) > 0 and dataset_ce <= self.state.ce_check_milestones[0]:
-                        passed_milestone = self.state.ce_check_milestones[0]
-                        print(f'passed ce milestone {passed_milestone}')
-                        self.state.ce_check_milestones.pop(0)
-                        self.state.ce_check_freq += 1
-                        if self.config.save_epoch_freq is not None:
-                            self.save_state(f'_ce_{passed_milestone}')
+                    # Cross-entropy stopping check
+                    dataset_ce = self.evaluate_cross_entropy(
+                        DatasetSubsetType.TRAIN, log=is_last_batch)[0]
+                    if dataset_ce < self.hparams.ce_target:
+                        self.state.converged = True
+                    else:
+                        while len(self.state.ce_check_milestones) > 0 and dataset_ce <= self.state.ce_check_milestones[0]:
+                            passed_milestone = self.state.ce_check_milestones[0]
+                            print(f'passed ce milestone {passed_milestone}')
+                            self.state.ce_check_milestones.pop(0)
+                            self.state.check_freq += 1
+                            # if passed one milestone, double the ce check frequency
+                            if self.config.save_epoch_freq is not None:
+                                self.save_state(f'_ce_{passed_milestone}')
 
             if self.state.converged:
                 break

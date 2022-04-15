@@ -1,6 +1,6 @@
-for dataset in {"FashionMNIST_binary","KMNIST_binary","EMNIST_binary"}
+for dataset in {"FashionMNIST_binary","KMNIST_binary","EMNIST_binary", "SVHN_binary", "CIFAR10_binary"}
 do
-    for train_size in {100,500,1000,2000,4000,8000,10000,16000}
+    for train_size in {100,200,300,400,500,600,700,800,900,1000,2000,3000,4000,5000,6000,7000,8000,9000,10000}
     do
         for seed in {0,16,32,64,128,256,512,1024}
         do

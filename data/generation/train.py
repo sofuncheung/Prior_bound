@@ -22,6 +22,8 @@ if __name__ == '__main__':
     config.setup_dirs()
     state: State = args.state
     state.ce_check_milestones = hparams.ce_target_milestones.copy()
+    state.acc_check_milestones = hparams.acc_target_milestones.copy()
+
 
     # Above allows you to setup hparams upon running the script
 
