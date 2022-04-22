@@ -1,5 +1,6 @@
 import pandas as pd
 import os
+import numpy as np
 
 
 def slash2dot(string):
@@ -81,6 +82,13 @@ def format_data(csv_file):
     data['hp.dataset'] = data['hp.dataset'].str.replace(
             'fashionmnist_binary','fashionmnist-binary')
 
+    # Rescale mar_lik for the actual bound in Theorem 5.1 of
+    # https://arxiv.org/abs/2012.04115
+    data["mar_lik_bound"] = (data['complexity.mar_lik'] * data["hp.train_dataset_size"] / np.log10(np.e)
+                             + np.log(data["hp.train_dataset_size"]) + 2*np.log(100)) / (
+                                 data["hp.train_dataset_size"] - 1)
+    data["prior_bound"] = (data['complexity.prior'] * data["hp.train_dataset_size"]
+                           / np.log10(np.e) + np.log(100)) / data["hp.train_dataset_size"]
 
     data.to_csv('formatted.csv',index=False)
 
