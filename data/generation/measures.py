@@ -278,7 +278,8 @@ def get_all_measures(
         [p.svd().S.max().unsqueeze(0) ** 2 for p in dist_reshaped_weights])
 
     if model_type == ModelType.FCN:
-        print("Approximate Spectral Norm")
+        #print("Approximate Spectral Norm")
+        print("Exact Spectral Norm for FCN")
         # Note that these use an approximation from [Yoshida and Miyato, 2017]
         # https://arxiv.org/abs/1705.10941 (Section 3.2, Convolutions)
         measures[CT.LOG_PROD_OF_SPEC] = spec_norms.log().sum()  # 32
@@ -294,9 +295,14 @@ def get_all_measures(
         measures[CT.LOG_SUM_OF_SPEC] = math.log(
             d) + (1/d) * measures[CT.LOG_PROD_OF_SPEC]  # 35
     else:
-        print("Exact Spectral Norm")
+        print("Exact Spectral Norm for CNN Kernel Weights, Fully Connected layer weights not included")
         # Proposed in https://arxiv.org/abs/1805.10408
         # Adapted from https://github.com/brain-research/conv-sv/blob/master/conv2d_singular_values.py#L52
+
+        # Note on 24 Apr 2022:
+        # Right now I can't make sure whether CNN spectral norm bound should include the weights of
+        # last fully connected layer, because it's 3:40 AM and I'm bloody sleepy.
+        # Answers are likely to be found in https://arxiv.org/abs/1801.00171
 
         def _spectral_norm_fft(kernel: Tensor, input_shape: Tuple[int, int]) -> Tensor:
             # PyTorch conv2d filters use Shape(out,in,kh,kw)
@@ -312,9 +318,11 @@ def get_all_measures(
 
         input_shape = (model.dataset_type.D[1], model.dataset_type.D[2])
         fft_spec_norms = torch.cat(
-            [_spectral_norm_fft(p, input_shape).unsqueeze(0) ** 2 for p in weights])
+            [_spectral_norm_fft(p, input_shape).unsqueeze(0) ** 2
+                for p in weights if len(p.shape)==4])
         fft_dist_spec_norms = torch.cat([_spectral_norm_fft(
-            p, input_shape).unsqueeze(0) ** 2 for p in dist_init_weights])
+            p, input_shape).unsqueeze(0) ** 2 for p in dist_init_weights
+            if len(p.shape)==4])
 
         measures[CT.LOG_PROD_OF_SPEC_FFT] = fft_spec_norms.log().sum()  # 32
         measures[CT.LOG_PROD_OF_SPEC_OVER_MARGIN_FFT] = measures[CT.LOG_PROD_OF_SPEC_FFT] - \

@@ -80,7 +80,10 @@ class Experiment:
 
     @staticmethod
     def _get_model(hparams: HParams) -> ModelType:
-        if hparams.model_type == ModelType.FCN:
+        if hparams.model_type == ModelType.NiN:
+            return NiN(hparams.model_depth, hparams.model_width,
+                    hparams.base_width, hparams.dataset_type)
+        elif hparams.model_type == ModelType.FCN:
             return FCN(hparams.model_width_tuple, hparams.dataset_type)
         elif hparams.model_type == ModelType.CNN:
             return CNN(hparams.model_width_tuple,
@@ -91,7 +94,10 @@ class Experiment:
 
     @staticmethod
     def _get_model_binary(hparams: HParams) -> ModelType:
-        if hparams.model_type == ModelType.FCN:
+        if hparams.model_type == ModelType.NiN:
+            return NiN_binary(hparams.model_depth, hparams.model_width,
+                    hparams.base_width, hparams.dataset_type)
+        elif hparams.model_type == ModelType.FCN:
             return FCN_binary(hparams.model_width_tuple, hparams.dataset_type)
         elif hparams.model_type == ModelType.CNN:
             return CNN_binary(hparams.model_width_tuple,

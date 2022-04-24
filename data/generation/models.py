@@ -201,7 +201,6 @@ class CNN(ExperimentBaseModel):
         self.filter_sizes = [[5,5], [2,2]] * (self.L // 2) + [[5,5]] * (self.L % 2)
         self.padding = ["valid", "same"] * (self.L // 2) + ["valid"] * (self.L % 2)
 
-        self.pooling_same_padding = nn.ZeroPad2d((0,1,0,1))
         # this asymmetric padding layer is only needed beford an intermediate
         # pooling layer when the feature map dims is odd.
 
@@ -211,7 +210,7 @@ class CNN(ExperimentBaseModel):
         self.model.append(nn.ReLU(inplace=True))
         if intermediate_pooling_type != None:
             if cal_image_dim(self.dataset_type.D[1], 1) % 2 == 1:
-                self.model.append(self.pooling_same_padding) # feature has odd dim, needs asym padding
+                self.model.append(nn.ZeroPad2d((0,1,0,1))) # feature has odd dim, needs asym padding
             if intermediate_pooling_type == "avg":
                 self.model.append(nn.AvgPool2d(2, count_include_pad=False))
             elif intermediate_pooling_type == "max":
@@ -225,7 +224,7 @@ class CNN(ExperimentBaseModel):
             self.model.append(nn.ReLU(inplace=True))
             if intermediate_pooling_type != None:
                 if cal_image_dim(self.dataset_type.D[1], i+2) % 2 == 1:
-                    self.model.append(self.pooling_same_padding)
+                    self.model.append(nn.ZeroPad2d((0,1,0,1)))
                 if intermediate_pooling_type == "avg":
                     self.model.append(nn.AvgPool2d(2, count_include_pad=False))
                 elif intermediate_pooling_type == "max":
