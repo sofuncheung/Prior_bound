@@ -73,6 +73,9 @@ class Experiment:
         else:
             raise KeyError
 
+        # Check and load
+        self.checkNload()
+
         # Load data
         (self.train_loader, self.train_eval_loader,
                 self.test_loader) = get_dataloaders(
@@ -117,6 +120,30 @@ class Experiment:
             'np_rng': np.random.get_state(),
             'torch_rng': torch.get_rng_state(),
         }, checkpoint_file)
+
+    def checkNload(self,) -> None:
+        """
+        Check whether there is corresponding pt file,
+        if so, check if it's converged.
+        If not, load it.
+        """
+        checkpoint_file = self.config.checkpoint_dir / \
+            (self.hparams.md5 + '.pt')
+        try:
+            ckpt = torch.load(checkpoint_file)
+            if ckpt['state'].converged == True:
+                print("Checkpoint file found but already converged. Fresh start.")
+            else:
+                print("Checkpoint file found, loading model...")
+                self.model.load_state_dict(ckpt['model'])
+                print("Loading init_model")
+                self.init_model.load_state_dict(ckpt['init_model'])
+                print("Loading optimizer")
+                self.optimizer.load_state_dict(ckpt['optimizer'])
+
+        except FileNotFoundError:
+            print("No checkpoint file found. Fresh start.")
+
 
     def _train_epoch(self) -> None:
         self.model.train()
