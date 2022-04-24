@@ -9,7 +9,7 @@ def empirical_K(model, data, number_samples, device, seed,
         n_gpus=1,
         empirical_kernel_batch_size=5000,
         truncated_init_dist=False,
-        store_partial_kernel=False, # True will not average the kernel at thn end.
+        store_partial_kernel=False, # True will not average the kernel at the end.
         partial_kernel_n_proc=1,
         partial_kernel_index=0):
 

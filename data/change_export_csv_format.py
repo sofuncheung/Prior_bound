@@ -54,4 +54,4 @@ def format_data(csv_file):
 
 
 if __name__ == '__main__':
-    format_data('180_runs.csv')
+    format_data('900_runs.csv')

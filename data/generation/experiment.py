@@ -91,7 +91,6 @@ class Experiment:
                     hparams.pooling,
                     hparams.dataset_type)
 
-
     @staticmethod
     def _get_model_binary(hparams: HParams) -> ModelType:
         if hparams.model_type == ModelType.NiN:
