@@ -277,9 +277,9 @@ def get_all_measures(
     dist_spec_norms = torch.cat(
         [p.svd().S.max().unsqueeze(0) ** 2 for p in dist_reshaped_weights])
 
-    if model_type == ModelType.FCN:
+    if model_type == ModelType.FCN or model_type == ModelType.CNN:
         #print("Approximate Spectral Norm")
-        print("Exact Spectral Norm for FCN")
+        print("Approximate Spectral Norm for CNN; Exact Spectral Norm for FCN")
         # Note that these use an approximation from [Yoshida and Miyato, 2017]
         # https://arxiv.org/abs/1705.10941 (Section 3.2, Convolutions)
         measures[CT.LOG_PROD_OF_SPEC] = spec_norms.log().sum()  # 32
