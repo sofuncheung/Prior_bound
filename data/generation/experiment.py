@@ -82,12 +82,22 @@ class Experiment:
     def _get_model(hparams: HParams) -> ModelType:
         if hparams.model_type == ModelType.FCN:
             return FCN(hparams.model_width_tuple, hparams.dataset_type)
+        elif hparams.model_type == ModelType.CNN:
+            return CNN(hparams.model_width_tuple,
+                    hparams.intermediate_pooling_type,
+                    hparams.pooling,
+                    hparams.dataset_type)
 
 
     @staticmethod
     def _get_model_binary(hparams: HParams) -> ModelType:
         if hparams.model_type == ModelType.FCN:
             return FCN_binary(hparams.model_width_tuple, hparams.dataset_type)
+        elif hparams.model_type == ModelType.CNN:
+            return CNN_binary(hparams.model_width_tuple,
+                    hparams.intermediate_pooling_type,
+                    hparams.pooling,
+                    hparams.dataset_type)
 
 
     def save_state(self, postfix: str = '') -> None:

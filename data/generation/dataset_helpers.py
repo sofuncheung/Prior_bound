@@ -55,8 +55,8 @@ def get_dataloaders(hparams: HParams, config: Config, device: torch.device) -> T
         test = dataset(hparams, config, device, download=True, **test_key)
 
     train_loader = DataLoader(train, batch_size=hparams.batch_size, shuffle=True, num_workers=0)
-    train_eval_loader = DataLoader(train, batch_size=5000, shuffle=False, num_workers=0)
-    test_loader = DataLoader(test, batch_size=5000, shuffle=False, num_workers=0)
+    train_eval_loader = DataLoader(train, batch_size=500, shuffle=False, num_workers=0)
+    test_loader = DataLoader(test, batch_size=500, shuffle=False, num_workers=0)
     return train_loader, train_eval_loader, test_loader
 
 

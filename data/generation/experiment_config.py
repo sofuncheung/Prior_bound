@@ -30,6 +30,7 @@ class DatasetSubsetType(IntEnum):
 class ModelType(Enum):
     NiN = 0
     FCN = 1
+    CNN = 2
 
 
 class ComplexityType(Enum):
@@ -109,7 +110,12 @@ class HParams:
     # Model
     model_type: ModelType = ModelType.FCN
     # model_depth: int = 2
-    model_width_tuple: tuple = (1024, 1024)
+    model_width_tuple: List[int] = field(
+        default_factory=lambda: [1024, 1024])
+
+    # for gui-CNN only
+    intermediate_pooling_type: Optional[str] = None # can be "avg", "max"
+    pooling: Optional[str] = "avg" # can be "avg", "max"
     # base_width: int = 25
     # Dataset
     #dataset_type: DatasetType = DatasetType.CIFAR10_binary
@@ -118,8 +124,8 @@ class HParams:
     train_dataset_size: Optional[int] = 2000
     test_dataset_size: Optional[int] = 10000
     # Training
-    batch_size: int = 32
-    epochs: int = 500
+    batch_size: int = 256
+    epochs: int = 300
     optimizer_type: OptimizerType = OptimizerType.ADAM
     lr: float = 0.01
 

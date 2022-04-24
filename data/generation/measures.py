@@ -148,7 +148,7 @@ def get_all_measures(
             0.1*len(data_train_plus_test),
             device_string, seed,
             n_gpus=1,
-            empirical_kernel_batch_size=5000,
+            empirical_kernel_batch_size=500,
             truncated_init_dist=False,
             store_partial_kernel=False,
             partial_kernel_n_proc=1,
@@ -161,7 +161,7 @@ def get_all_measures(
     def _get_xs_ys_from_dataset(dataset):
         loader = torch.utils.data.DataLoader(
             dataset,
-            batch_size=5000,
+            batch_size=500,
             shuffle=False,
             num_workers=0,
             drop_last=False
@@ -179,7 +179,7 @@ def get_all_measures(
         device = next(model.parameters()).device
         loader = torch.utils.data.DataLoader(
             dataset,
-            batch_size=5000,
+            batch_size=500,
             shuffle=False,
             num_workers=0)
         outputs_list = []
