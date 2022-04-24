@@ -109,16 +109,21 @@ class HParams:
     use_cuda: bool = True
     # Model
     model_type: ModelType = ModelType.FCN
-    # model_depth: int = 2
+
+    # for FCN and gui-CNN
     model_width_tuple: List[int] = field(
         default_factory=lambda: [1024, 1024])
 
     # for gui-CNN only
     intermediate_pooling_type: Optional[str] = None # can be "avg", "max"
     pooling: Optional[str] = "avg" # can be "avg", "max"
-    # base_width: int = 25
+
+    # for NiN
+    base_width: int = 25
+    model_depth: int = 2
+    model_width: int = 8
+
     # Dataset
-    #dataset_type: DatasetType = DatasetType.CIFAR10_binary
     dataset_type: DatasetType = DatasetType.MNIST_binary
     data_seed: Optional[int] = 42
     train_dataset_size: Optional[int] = 2000
