@@ -55,7 +55,7 @@ class BaseLogger(object):
 
 class WandbLogger(BaseLogger):
     def __init__(self, tag: Optional[str] = None, hps: Optional[dict] = None, group: Optional[str] = None):
-        wandb.init(project='rgm-learning_curve-single-logit', config=hps, tags=[tag], group=group)
+        wandb.init(project='rgm-learning_curve-single-logit-log-even', config=hps, tags=[tag], group=group)
 
     def log_metrics(self, step: int, metrics: dict):
         wandb.log(metrics, step=step)
