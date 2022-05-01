@@ -13,6 +13,7 @@ from .experiment_config import ComplexityType as CT
 from .experiment_config import ModelType
 from .models import ExperimentBaseModel
 from .empirical_kernel import empirical_K
+from .fc_kernel import kernel_matrix
 from .GP_prob.GP_prob_gpy import GP_prob
 
 # Adapted from https://github.com/bneyshabur/generalization-bounds/blob/master/measures.py
@@ -125,11 +126,13 @@ def _pacbayes_sigma(
 def get_all_measures(
     model: ExperimentBaseModel,
     init_model: ExperimentBaseModel,
-    model_binary: ExperimentBaseModel,
+    model_fc_popped: ExperimentBaseModel,
     trainNtest_loaders: Tuple[DataLoader, DataLoader],
     acc: float,
     seed: int,
-    model_type: ModelType
+    model_type: ModelType,
+    compute_mar_lik: bool = True,
+    compute_prior: bool = True
 ) -> Dict[CT, float]:
     measures = {}
 
@@ -138,26 +141,9 @@ def get_all_measures(
 
     device = next(model.parameters()).device
     device_string = 'cuda' if next(model.parameters()).is_cuda else 'cpu'
+
     m = len(trainNtest_loaders[0].dataset)
 
-    data_train_plus_test = torch.utils.data.ConcatDataset(
-            (trainNtest_loaders[0].dataset,
-            trainNtest_loaders[1].dataset))
-    K = empirical_K(model_binary, data_train_plus_test,
-            #2,
-            0.1*len(data_train_plus_test),
-            device_string, seed,
-            n_gpus=1,
-            empirical_kernel_batch_size=500,
-            truncated_init_dist=False,
-            store_partial_kernel=False,
-            partial_kernel_n_proc=1,
-            partial_kernel_index=0
-            )
-    K = np.array(K.cpu())
-    # gpy EP calculation uses np.float64 internally. So it doesn't matter what precision
-    # you use here.
-    K_marg = K[:m, :m]
     def _get_xs_ys_from_dataset(dataset):
         loader = torch.utils.data.DataLoader(
             dataset,
@@ -187,33 +173,95 @@ def get_all_measures(
             inputs = inputs.to(device)
             with torch.no_grad():
                 logits = model(inputs)
-                pred = logits.data.max(1, keepdim=True)[1]
+                pred = logits.data > 0
+                # funny thing, I made a mistake here which makes all
+                # pred to be zero. In this case the prior bound would be 
+                # very small. That means this simple function is very likely
+                # to be found.
                 outputs_list.append(pred)
 
         return torch.cat(outputs_list, axis=0)
 
-    (xs, _) = _get_xs_ys_from_dataset(data_train_plus_test)
-    ys = _get_label_prediction(model, data_train_plus_test)
-    if xs.is_cuda:
-        xs = xs.cpu()
-    if ys.is_cuda:
-        ys = ys.cpu()
-    logPU = GP_prob(K, np.array(xs), np.array(ys))
-    log_10PU = logPU * np.log10(np.e)
-    # Marginal likelihood
-    (xs_train, ys_train) = _get_xs_ys_from_dataset(trainNtest_loaders[0].dataset)
-    if xs_train.is_cuda:
-        xs_train = xs_train.cpu()
-    if ys_train.is_cuda:
-        ys_train = ys_train.cpu()
-    ys_train = [[y] for y in ys_train]
+    if compute_prior:
+        print("GP based measures")
+        data_train_plus_test = torch.utils.data.ConcatDataset(
+                (trainNtest_loaders[0].dataset,
+                trainNtest_loaders[1].dataset))
 
-    logPS = GP_prob(K_marg, np.array(xs_train), np.array(ys_train))
-    log_10PS = logPS * np.log10(np.e)
+        (xs, _) = _get_xs_ys_from_dataset(data_train_plus_test)
+        ys = _get_label_prediction(model, data_train_plus_test)
+        if xs.is_cuda:
+            xs = xs.cpu()
+        if ys.is_cuda:
+            ys = ys.cpu()
+        if model_type == ModelType.FCN:
+            # Use analytical arccos kernel
+            K = kernel_matrix(xs, model.number_layers, np.sqrt(2), 0)
+        else:
+            K = empirical_K(model_fc_popped, data_train_plus_test,
+                    #2,
+                    0.1*len(data_train_plus_test),
+                    device_string, seed,
+                    n_gpus=1,
+                    empirical_kernel_batch_size=500,
+                    truncated_init_dist=False,
+                    store_partial_kernel=False,
+                    partial_kernel_n_proc=1,
+                    partial_kernel_index=0
+                    )
 
-    print("GP based measures")
-    measures[CT.PRIOR] = torch.tensor(log_10PU, device=device, dtype=torch.float32)
-    measures[CT.MAR_LIK] = torch.tensor(log_10PS, device=device, dtype=torch.float32)
+            K = np.array(K.cpu())
+            # gpy EP calculation uses np.float64 internally. So it doesn't matter what precision
+            # you use here.
+
+        logPU = GP_prob(K, np.array(xs), np.array(ys))
+        log_10PU = logPU * np.log10(np.e)
+        measures[CT.PRIOR] = torch.tensor(log_10PU, device=device, dtype=torch.float32)
+
+        # Marginal likelihood
+        if compute_mar_lik:
+            K_marg = K[:m, :m]
+            (xs_train, ys_train) = _get_xs_ys_from_dataset(trainNtest_loaders[0].dataset)
+            if xs_train.is_cuda:
+                xs_train = xs_train.cpu()
+            if ys_train.is_cuda:
+                ys_train = ys_train.cpu()
+            ys_train = [[y] for y in ys_train]
+
+            logPS = GP_prob(K_marg, np.array(xs_train), np.array(ys_train))
+            log_10PS = logPS * np.log10(np.e)
+
+            measures[CT.MAR_LIK] = torch.tensor(log_10PS, device=device, dtype=torch.float32)
+
+    if compute_mar_lik and (not compute_prior):
+        print("GP based measures")
+        (xs_train, ys_train) = _get_xs_ys_from_dataset(trainNtest_loaders[0].dataset)
+        if xs_train.is_cuda:
+            xs_train = xs_train.cpu()
+        if ys_train.is_cuda:
+            ys_train = ys_train.cpu()
+        ys_train = [[y] for y in ys_train]
+
+        if model_type == ModelType.FCN:
+            K_marg = kernel_matrix(xs_train, model.number_layers, np.sqrt(2), 0)
+        else:
+            K_marg = empirical_K(model_fc_popped, trainNtest_loaders[0].dataset,
+                #2,
+                0.1*m,
+                device_string, seed,
+                n_gpus=1,
+                empirical_kernel_batch_size=500,
+                truncated_init_dist=False,
+                store_partial_kernel=False,
+                partial_kernel_n_proc=1,
+                partial_kernel_index=0
+                )
+            K_marg = np.array(K_marg.cpu())
+
+        logPS = GP_prob(K_marg, np.array(xs_train), np.array(ys_train))
+        log_10PS = logPS * np.log10(np.e)
+
+        measures[CT.MAR_LIK] = torch.tensor(log_10PS, device=device, dtype=torch.float32)
 
     def get_weights_only(model: ExperimentBaseModel) -> List[Tensor]:
         blacklist = {'bias', 'bn'}
@@ -251,15 +299,24 @@ def get_all_measures(
         model: ExperimentBaseModel,
         dataloader: DataLoader
     ) -> Tensor:
+        # Is margin defined on single-output-logit NNs?
+        # I don't know. Here is how I'd do it.
+        # margin = |f(x)| * sgn(pred is correct)
+        def _is_preds_are_correct(logits, target):
+            signs = torch.zeros(len(logits), device=target.device)
+            for i in range(len(logits)):
+                if ((target[i] == 1 and logits[i] > 0) or
+                    (target[i] == 0 and logits[i] <= 0)):
+                    signs[i] = 1.
+                elif ((target[i] == 1 and logits[i] <= 0) or
+                      (target[i] == 0 and logits[i] > 0)):
+                    signs[i] = -1.
+            return signs
+
         margins = []
         for data, target in dataloader:
-            logits = model(data)
-            correct_logit = logits[torch.arange(
-                logits.shape[0]), target].clone()
-            logits[torch.arange(logits.shape[0]), target] = float('-inf')
-            # get the index of the max logits
-            max_other_logit = logits.data.max(1).values
-            margin = correct_logit - max_other_logit
+            logits = model(data).squeeze(-1)
+            margin = logits.abs() * _is_preds_are_correct(logits, target)
             margins.append(margin)
         return torch.cat(margins).kthvalue(m // 10)[0]
 

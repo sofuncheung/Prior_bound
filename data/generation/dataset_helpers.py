@@ -78,7 +78,7 @@ def process_data(hparams: HParams, data_np: np.ndarray, targets_np: np.ndarray, 
 
     # Numpy -> Torch
     data = torch.tensor(data_np, dtype=torch.float32) # Memory checkpoint
-    targets = torch.tensor(targets_np, dtype=torch.long)
+    targets = torch.tensor(targets_np, dtype=torch.float32)
 
     # Resize dataset
     dataset_size, offset = (hparams.train_dataset_size, 0) if train else (hparams.test_dataset_size, 1)

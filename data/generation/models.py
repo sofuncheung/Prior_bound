@@ -125,6 +125,7 @@ class FCN(ExperimentBaseModel):
 
         input_dim = calculate_production(self.dataset_type.D)
 
+        self.number_layers = len(width_tuple) # number of hidden layers
         self.model = [nn.Flatten()]
         self.model.append(nn.Linear(input_dim, width_tuple[0]))
         self.model.append(nn.ReLU(inplace=True))
@@ -133,25 +134,29 @@ class FCN(ExperimentBaseModel):
             self.model.append(nn.ReLU(inplace=True))
         self.model.append(nn.Linear(width_tuple[-1], self.dataset_type.K))
         self.model = nn.Sequential(*self.model)
+        self.apply(self.he_init)
+
+    def he_init(self, module):
+        r'''
+        He-normal initialization for GP volume calculation.
+        The function should be used in conjuction with 'net.apply'
+        '''
+        if isinstance(module, nn.Conv2d) or isinstance(module, nn.Linear):
+            nn.init.kaiming_normal_(module.weight,
+                    mode='fan_in', # GP only involves feed-forward process
+                    nonlinearity='relu') # so gain = sqrt(2)
+            if (not (module.bias is None)):
+                nn.init.zeros_(module.bias)
 
     def forward(self, x):
         return self.model(x)
 
 
-class FCN_binary(ExperimentBaseModel):
+class FCN_binary(FCN):
     def __init__(self, width_tuple: list, dataset_type: DatasetType) -> None:
-        super().__init__(dataset_type)
+        super().__init__(width_tuple, dataset_type)
 
         input_dim = calculate_production(self.dataset_type.D)
-
-        self.model = [nn.Flatten()]
-        self.model.append(nn.Linear(input_dim, width_tuple[0]))
-        self.model.append(nn.ReLU(inplace=True))
-        for i in range(len(width_tuple) - 1):
-            self.model.append(nn.Linear(width_tuple[i], width_tuple[i+1]))
-            self.model.append(nn.ReLU(inplace=True))
-        self.model.append(nn.Linear(width_tuple[-1], self.dataset_type.K))
-        self.model = nn.Sequential(*self.model)
 
     def forward(self, x):
         x = self.model(x)

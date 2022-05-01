@@ -44,8 +44,8 @@ def kern(X1: torch.tensor, X2: torch.tensor,
             K12 = torch.mul(K1, K2) # elementwise multiplication
             costheta = torch.div(K, torch.sqrt(K12))
             theta = torch.acos(costheta)
-            K = sigmab**2 + (sigmaw**2/(2*np.pi)) * tf.sqrt(K12) *
-                            (torch.sin(theta) + (np.pi - theta) * costheta)
+            K = sigmab**2 + ((sigmaw**2/(2*np.pi)) * np.sqrt(K12) *
+                            (torch.sin(theta) + (np.pi - theta) * costheta))
         return K
 
     else:
@@ -59,8 +59,8 @@ def kern(X1: torch.tensor, X2: torch.tensor,
             K12 = torch.mul(K1, K2) # elementwise multiplication
             costheta = torch.div(K, torch.sqrt(K12))
             theta = torch.acos(costheta)
-            K = sigmab**2 + (sigmaw**2/(2*np.pi)) * tf.sqrt(K12) *
-                            (torch.sin(theta) + (np.pi - theta) * costheta)
+            K = sigmab**2 + ((sigmaw**2/(2*np.pi)) * np.sqrt(K12) *
+                            (torch.sin(theta) + (np.pi - theta) * costheta))
             K1_diag = sigmab**2 + (sigmaw**2 / 2) * K1_diag
             K2_diag = sigmab**2 + (sigmaw**2 / 2) * K2_diag
 
@@ -98,7 +98,7 @@ def kernel_matrix(X: np.array, number_layers: int,
 
     K_matrix = np.zeros((m, m), dtype=np.float64)
 
-    for j_s, i_s in slices[j]:
+    for j_s, i_s in slices:
         if j_s == i_s:
             X1 = X[j_s]
             K_symm = kern(X1, None, number_layers, sigmaw, sigmab)

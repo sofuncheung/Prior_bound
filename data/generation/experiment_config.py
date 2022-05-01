@@ -9,17 +9,17 @@ from typing import Dict, List, NamedTuple, Optional, Tuple
 class DatasetType(Enum):
     CIFAR10 = (1, (3, 32, 32), 10)
     SVHN = (2, (3, 32, 32), 10)
-    CIFAR10_binary = (3, (3, 32, 32), 2)
-    SVHN_binary = (4, (3, 32, 32), 2)
-    MNIST_binary = (5, (1, 28, 28), 2)
-    FashionMNIST_binary = (6, (1, 28, 28), 2)
-    KMNIST_binary = (7, (1, 28, 28), 2)
-    EMNIST_binary = (8, (1, 28, 28), 2)
-    PCAM = (9, (3, 96, 96), 2)
+    CIFAR10_binary = (3, (3, 32, 32), 1)
+    SVHN_binary = (4, (3, 32, 32), 1)
+    MNIST_binary = (5, (1, 28, 28), 1)
+    FashionMNIST_binary = (6, (1, 28, 28), 1)
+    KMNIST_binary = (7, (1, 28, 28), 1)
+    EMNIST_binary = (8, (1, 28, 28), 1)
+    PCAM = (9, (3, 96, 96), 1)
 
-    def __init__(self, id: int, image_shape: Tuple[int, int, int], num_classes: int):
+    def __init__(self, id: int, image_shape: Tuple[int, int, int], num_logits: int):
         self.D = image_shape
-        self.K = num_classes
+        self.K = num_logits
 
 
 class DatasetSubsetType(IntEnum):
@@ -148,6 +148,10 @@ class HParams:
     ce_target_milestones: Optional[List[float]] = field(
         default_factory=lambda: [0.05, 0.025, 0.015])
         # these two would be neglected if stop_by_full_train_acc=True
+
+    # GP measures related
+    compute_prior: bool = True
+    compute_mar_lik: bool = True
 
     def to_tensorboard_dict(self) -> dict:
         d = asdict(self)

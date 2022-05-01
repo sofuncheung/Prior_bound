@@ -57,8 +57,10 @@ class Experiment:
               for p in self.model.parameters() if p.requires_grad))
         self.model.to(device)
         self.init_model = deepcopy(self.model)
-        self.model_binary = self._get_model_binary(self.hparams)
-
+        if self.hparams.model_type == ModelType.FCN:
+            self.model_fc_popped = None
+        else:
+            self.model_fc_popped = self._get_model_fc_popped(self.hparams)
 
         # Optimizer
         if self.hparams.optimizer_type == OptimizerType.SGD:
@@ -73,7 +75,7 @@ class Experiment:
         else:
             raise KeyError
 
-        # Check and load
+        # Check and load if the experiment was run and saved before.
         self.checkNload()
 
         # Load data
@@ -95,14 +97,12 @@ class Experiment:
                     hparams.dataset_type)
 
     @staticmethod
-    def _get_model_binary(hparams: HParams) -> ModelType:
+    def _get_model_fc_popped(hparams: HParams) -> ModelType:
         if hparams.model_type == ModelType.NiN:
-            return NiN_binary(hparams.model_depth, hparams.model_width,
+            return NiN_fc_popped(hparams.model_depth, hparams.model_width,
                     hparams.base_width, hparams.dataset_type)
-        elif hparams.model_type == ModelType.FCN:
-            return FCN_binary(hparams.model_width_tuple, hparams.dataset_type)
         elif hparams.model_type == ModelType.CNN:
-            return CNN_binary(hparams.model_width_tuple,
+            return CNN_fc_popped(hparams.model_width_tuple,
                     hparams.intermediate_pooling_type,
                     hparams.pooling,
                     hparams.dataset_type)
@@ -163,8 +163,8 @@ class Experiment:
             self.model.train()
             self.optimizer.zero_grad()
 
-            logits = self.model(data)
-            cross_entropy = F.cross_entropy(logits, target)
+            logits = self.model(data).squeeze(-1)
+            cross_entropy = F.binary_cross_entropy_with_logits(logits, target)
 
             cross_entropy.backward()
             loss = cross_entropy.clone()
@@ -268,8 +268,9 @@ class Experiment:
         all_complexities = {}
         if dataset_subset_type == DatasetSubsetType.TRAIN and compute_all_measures:
             all_complexities = get_all_measures(
-                self.model, self.init_model, self.model_binary,
-                trainNtest_loaders, acc, self.hparams.seed, self.hparams.model_type)
+                self.model, self.init_model, self.model_fc_popped,
+                trainNtest_loaders, acc, self.hparams.seed, self.hparams.model_type,
+                self.hparams.compute_mar_lik, self.hparams.compute_prior)
 
         self.logger.log_epoch_end(
             self.hparams, self.state, dataset_subset_type, cross_entropy_loss, acc)
@@ -289,12 +290,12 @@ class Experiment:
         for data, target in data_loader:
             data, target = data.to(self.device, non_blocking=True), target.to(
                 self.device, non_blocking=True)
-            logits = self.model(data)
-            cross_entropy = F.cross_entropy(logits, target, reduction='sum')
+            logits = self.model(data).squeeze(-1)
+            cross_entropy = F.binary_cross_entropy_with_logits(logits, target, reduction='sum')
             cross_entropy_loss += cross_entropy.item()  # sum up batch loss
 
             # get the index of the max logits
-            pred = logits.data.max(1, keepdim=True)[1]
+            pred = logits.data > 0
             batch_correct = pred.eq(target.data.view_as(
                 pred)).type(torch.FloatTensor).cpu()
             num_correct += batch_correct.sum()
