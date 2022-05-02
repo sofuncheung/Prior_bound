@@ -93,14 +93,17 @@ def kernel_matrix(X: np.array, number_layers: int,
     #  ((0,10000), (10000,20000)),
     #  ((10000,20000), (10000,20000))]
     slices = []
-    for j in range(0, m-n_max, n_max):
-        for i in range(j, m-n_max, n_max):
-            slices.append((slice(j, j+n_max), slice(i, i+n_max)))
+    if m <= n_max:
+        slices.append((slice(0, m), slice(0, m)))
+    else:
+        for j in range(0, m-n_max, n_max):
+            for i in range(j, m-n_max, n_max):
+                slices.append((slice(j, j+n_max), slice(i, i+n_max)))
+            if m % n_max != 0:
+                # There are last bits
+                slices.append((slice(j, j+n_max), slice(i+n_max, i+n_max+m%n_max)))
         if m % n_max != 0:
-            # There are last bits
-            slices.append((slice(j, j+n_max), slice(i+n_max, i+n_max+m%n_max)))
-    if m % n_max != 0:
-        slices.append((slice(j+n_max, j+n_max+m%n_max), slice(i+n_max, i+n_max+m%n_max)))
+            slices.append((slice(j+n_max, j+n_max+m%n_max), slice(i+n_max, i+n_max+m%n_max)))
 
 
     K_matrix = np.zeros((m, m), dtype=np.float64)
