@@ -25,9 +25,13 @@ def kern(X1: torch.tensor, X2: torch.tensor,
                K_cross | K_symm(X2,X2)
                        |
 
+    X1 and X2 can have different size.
+
     sigmab, sigmaw: float
+
+    Return: Kernel matrix of shape(N1, N2)
     """
-    N = X1.shape[0] # number of training samples in this slice
+    N1 = X1.shape[0] # number of training samples in X1
     input_dim = X1.shape[1]
 
     if X2 == None:
@@ -38,8 +42,8 @@ def kern(X1: torch.tensor, X2: torch.tensor,
         K = sigmab**2 + sigmaw**2 * torch.matmul(X1, torch.t(X1))/input_dim
         for l in range(number_layers):
             K_diag = torch.diagonal(K).unsqueeze(-1)
-            K1 = torch.tile(K_diag, (1, N))
-            K2 = torch.tile(torch.t(K_diag), (N, 1))
+            K1 = torch.tile(K_diag, (1, N1))
+            K2 = torch.tile(torch.t(K_diag), (N1, 1))
 
             K12 = torch.mul(K1, K2) # elementwise multiplication
             costheta = torch.div(K, torch.sqrt(K12))
@@ -49,12 +53,13 @@ def kern(X1: torch.tensor, X2: torch.tensor,
         return K
 
     else:
+        N2 = X2.shape[0]
         K = sigmab**2 + sigmaw**2 * torch.matmul(X1, torch.t(X2))/input_dim
         K1_diag = sigmab**2 + sigmaw**2 * torch.sum(torch.mul(X1,X1), axis=1, keepdims=True)/input_dim
         K2_diag = sigmab**2 + sigmaw**2 * torch.sum(torch.mul(X2,X2), axis=1, keepdims=True)/input_dim
         for l in range(number_layers):
-            K1 = torch.tile(K1_diag, (1, N))
-            K2 = torch.tile(torch.t(K2_diag), (N, 1))
+            K1 = torch.tile(K1_diag, (1, N2))
+            K2 = torch.tile(torch.t(K2_diag), (N1, 1))
 
             K12 = torch.mul(K1, K2) # elementwise multiplication
             costheta = torch.div(K, torch.sqrt(K12))
@@ -81,20 +86,22 @@ def kernel_matrix(X: np.array, number_layers: int,
 
     m = X.shape[0]
     n_max = min(10000, m)
-    # Adjust n_max so it's evenly split
-    for i in range(n_max, 0, -1):
-        if m % i == 0:
-            n_max = i
-            break
 
     # Creating slices of the final kernel matrix
     # if m=20000 and n_max=10000, the slices woulu be
     # [((0,10000), (0,10000)),
     #  ((0,10000), (10000,20000)),
     #  ((10000,20000), (10000,20000))]
-    slices = list((slice(j, j+n_max), slice(i, i+n_max))
-                    for j in range(0, m, n_max)
-                    for i in range(j, m, n_max))
+    slices = []
+    for j in range(0, m-n_max, n_max):
+        for i in range(j, m-n_max, n_max):
+            slices.append((slice(j, j+n_max), slice(i, i+n_max)))
+        if m % n_max != 0:
+            # There are last bits
+            slices.append((slice(j, j+n_max), slice(i+n_max, i+n_max+m%n_max)))
+    if m % n_max != 0:
+        slices.append((slice(j+n_max, j+n_max+m%n_max), slice(i+n_max, i+n_max+m%n_max)))
+
 
     K_matrix = np.zeros((m, m), dtype=np.float64)
 
@@ -111,33 +118,4 @@ def kernel_matrix(X: np.array, number_layers: int,
             K_matrix[i_s, j_s] = K_cross.T
 
     return K_matrix
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
