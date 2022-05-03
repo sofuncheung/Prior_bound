@@ -72,7 +72,7 @@ def kern(X1: torch.tensor, X2: torch.tensor,
         return K
 
 
-def kernel_matrix(X: np.array, number_layers: int,
+def kernel_matrix(X: torch.tensor, number_layers: int,
         sigmaw: float, sigmab: float, n_gpus: int = 1):
 
     # the definition of n_gpus here is really unnecessary,
