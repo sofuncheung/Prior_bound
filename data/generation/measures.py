@@ -132,7 +132,8 @@ def get_all_measures(
     seed: int,
     model_type: ModelType,
     compute_mar_lik: bool = True,
-    compute_prior: bool = True
+    compute_prior: bool = True,
+    normalize_kernel: bool = False
 ) -> Dict[CT, float]:
     measures = {}
 
@@ -213,10 +214,10 @@ def get_all_measures(
             K = np.array(K.cpu())
             # gpy EP calculation uses np.float64 internally. So it doesn't matter what precision
             # you use here.
-
+        if normalize_kernel:
+            K = K / K.max()
         logPU = GP_prob(K, np.array(xs), np.array(ys))
-        log_10PU = logPU * np.log10(np.e)
-        measures[CT.PRIOR] = torch.tensor(log_10PU, device=device, dtype=torch.float32)
+        measures[CT.PRIOR] = torch.tensor(-logPU-np.log(2**-10)/m, device=device, dtype=torch.float32)
 
         # Marginal likelihood
         if compute_mar_lik:
@@ -229,9 +230,10 @@ def get_all_measures(
             ys_train = [[y] for y in ys_train]
 
             logPS = GP_prob(K_marg, np.array(xs_train), np.array(ys_train))
-            log_10PS = logPS * np.log10(np.e)
+            mar_lik_bound = (-logPS + 2*np.log(m) + 1 - np.log(2**-10)) / m
+            mar_lik_bound = 1-np.exp(-mar_lik_bound)
 
-            measures[CT.MAR_LIK] = torch.tensor(log_10PS, device=device, dtype=torch.float32)
+            measures[CT.MAR_LIK] = torch.tensor(mar_lik_bound, device=device, dtype=torch.float32)
 
     if compute_mar_lik and (not compute_prior):
         print("GP based measures")
@@ -258,10 +260,15 @@ def get_all_measures(
                 )
             K_marg = np.array(K_marg.cpu())
 
+        if normalize_kernel:
+            K_marg = K_marg / K_marg.max()
         logPS = GP_prob(K_marg, np.array(xs_train), np.array(ys_train))
-        log_10PS = logPS * np.log10(np.e)
+        print(-logPS/m)
+        mar_lik_bound = (-logPS + 2*np.log(m) + 1 - np.log(2**-10)) / m
+        mar_lik_bound = 1-np.exp(-mar_lik_bound)
 
-        measures[CT.MAR_LIK] = torch.tensor(log_10PS, device=device, dtype=torch.float32)
+        measures[CT.MAR_LIK] = torch.tensor(mar_lik_bound, device=device, dtype=torch.float32)
+
 
     def get_weights_only(model: ExperimentBaseModel) -> List[Tensor]:
         blacklist = {'bias', 'bn'}
@@ -455,7 +462,7 @@ def get_all_measures(
         if measure.name.startswith('LOG_'):
             return 0.5 * (value - np.log(m))
         elif measure.name in ['PRIOR', 'MAR_LIK']:
-            return -value / m
+            return value
         else:
             return np.sqrt(value / m)
     return {k: adjust_measure(k, v.item()) for k, v in measures.items()}

@@ -124,6 +124,7 @@ class HParams:
     model_width: int = 8
 
     # Dataset
+    center_data: bool = False
     dataset_type: DatasetType = DatasetType.MNIST_binary
     data_seed: Optional[int] = 42
     train_dataset_size: Optional[int] = 2000
@@ -152,6 +153,7 @@ class HParams:
     # GP measures related
     compute_prior: bool = True
     compute_mar_lik: bool = True
+    normalize_kernel: bool = False
 
     def to_tensorboard_dict(self) -> dict:
         d = asdict(self)

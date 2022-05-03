@@ -270,7 +270,8 @@ class Experiment:
             all_complexities = get_all_measures(
                 self.model, self.init_model, self.model_fc_popped,
                 trainNtest_loaders, acc, self.hparams.seed, self.hparams.model_type,
-                self.hparams.compute_mar_lik, self.hparams.compute_prior)
+                self.hparams.compute_mar_lik, self.hparams.compute_prior,
+                self.hparams.normalize_kernel)
 
         self.logger.log_epoch_end(
             self.hparams, self.state, dataset_subset_type, cross_entropy_loss, acc)

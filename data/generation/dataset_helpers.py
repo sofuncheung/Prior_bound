@@ -65,8 +65,9 @@ def process_data(hparams: HParams, data_np: np.ndarray, targets_np: np.ndarray, 
     # Scale data to [0,1] floats
     data_np = data_np / 255
 
-    # Normalize data
-    data_np = (data_np - data_np.mean(axis=(0,1,2))) / data_np.std(axis=(0,1,2))
+    if hparams.center_data == True:
+        # Centering data
+        data_np = (data_np - data_np.mean(axis=(0,1,2))) / data_np.std(axis=(0,1,2))
 
     # NHWC -> NCHW
     data_np = data_np.transpose((0,3,1,2))
