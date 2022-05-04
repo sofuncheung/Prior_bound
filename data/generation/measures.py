@@ -14,7 +14,7 @@ from .experiment_config import ModelType
 from .models import ExperimentBaseModel
 from .empirical_kernel import empirical_K
 from .fc_kernel import kernel_matrix
-from .GP_prob.GP_prob_gpy import GP_prob
+from .GP_prob.GP_prob_gpy2 import GP_prob
 
 # Adapted from https://github.com/bneyshabur/generalization-bounds/blob/master/measures.py
 
@@ -263,7 +263,6 @@ def get_all_measures(
         if normalize_kernel:
             K_marg = K_marg / K_marg.max()
         logPS = GP_prob(K_marg, np.array(xs_train), np.array(ys_train))
-        print(-logPS/m)
         mar_lik_bound = (-logPS + 2*np.log(m) + 1 - np.log(2**-10)) / m
         mar_lik_bound = 1-np.exp(-mar_lik_bound)
 
