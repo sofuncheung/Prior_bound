@@ -103,8 +103,7 @@ def _pacbayes_sigma(
                 loss_estimate = 0
                 for data, target in dataloader:
                     logits = p_model(data)
-                    # get the index of the max logits
-                    pred = logits.data.max(1, keepdim=True)[1]
+                    pred = logits.data > 0
                     batch_correct = pred.eq(target.data.view_as(
                         pred)).type(torch.FloatTensor).cpu()
                     loss_estimate += batch_correct.sum()
