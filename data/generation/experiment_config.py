@@ -169,6 +169,7 @@ class HParams:
     def wandb_md5(self):
         dictionary = self.to_tensorboard_dict()
         dictionary['seed'] = 0
+        dictionary['data_seed'] = 0
         # This puts experiments under different initializations into the same wandb group
         return hashlib.md5(str(dictionary).encode('utf-8')).hexdigest()
 
