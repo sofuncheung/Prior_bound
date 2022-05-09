@@ -216,7 +216,7 @@ def get_all_measures(
         if normalize_kernel:
             K = K / K.max()
         logPU = GP_prob(K, np.array(xs), np.array(ys))
-        measures[CT.PRIOR] = torch.tensor(-logPU-np.log(2**-10)/m, device=device, dtype=torch.float32)
+        measures[CT.PRIOR] = torch.tensor((-logPU-np.log(2**-10))/m, device=device, dtype=torch.float32)
 
         # Marginal likelihood
         if compute_mar_lik:
