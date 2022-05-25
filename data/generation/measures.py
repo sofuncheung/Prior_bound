@@ -230,6 +230,7 @@ def get_all_measures(
 
             logPS = GP_prob(K_marg, np.array(xs_train), np.array(ys_train))
             mar_lik_bound = (-logPS + 2*np.log(m) + 1 - np.log(2**-10)) / m
+            # "Some PAC-Bayesian Theorems" by McAllester 1999, Theorem 1.
             mar_lik_bound = 1-np.exp(-mar_lik_bound)
 
             measures[CT.MAR_LIK] = torch.tensor(mar_lik_bound, device=device, dtype=torch.float32)
