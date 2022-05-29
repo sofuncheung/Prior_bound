@@ -120,8 +120,8 @@ class HParams:
 
     # for NiN
     base_width: int = 25
-    model_depth: int = 3
-    model_width: int = 12
+    model_depth: int = 2
+    model_width: int = 8
 
     # Dataset
     center_data: bool = False
