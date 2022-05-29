@@ -70,11 +70,14 @@ class NiN(ExperimentBaseModel):
 
         x = self.conv(x)
         x = self.bn(x)
-        x = self.relu(x)
+        # x = self.relu(x)
+        # For single logit output need to remove the final relu
 
         x = self.avgpool(x)
 
-        return x.squeeze()
+        return x.squeeze().unsqueeze(-1)
+        # to match the shape of FCN outputs when there's only single output logit
+        # (Although uncessary)
 
 class NiN_binary(ExperimentBaseModel):
     def __init__(self, depth: int, width: int, base_width: int, dataset_type: DatasetType) -> None:

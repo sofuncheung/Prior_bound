@@ -57,7 +57,8 @@ class Experiment:
               for p in self.model.parameters() if p.requires_grad))
         self.model.to(device)
         self.init_model = deepcopy(self.model)
-        if self.hparams.model_type == ModelType.FCN:
+        if (self.hparams.model_type == ModelType.FCN or
+                self.hparams.model_type) == ModelType.NiN:
             self.model_fc_popped = None
         else:
             self.model_fc_popped = self._get_model_fc_popped(self.hparams)
@@ -98,10 +99,7 @@ class Experiment:
 
     @staticmethod
     def _get_model_fc_popped(hparams: HParams) -> ModelType:
-        if hparams.model_type == ModelType.NiN:
-            return NiN_fc_popped(hparams.model_depth, hparams.model_width,
-                    hparams.base_width, hparams.dataset_type)
-        elif hparams.model_type == ModelType.CNN:
+        if hparams.model_type == ModelType.CNN:
             return CNN_fc_popped(hparams.model_width_tuple,
                     hparams.intermediate_pooling_type,
                     hparams.pooling,

@@ -120,8 +120,8 @@ class HParams:
 
     # for NiN
     base_width: int = 25
-    model_depth: int = 2
-    model_width: int = 8
+    model_depth: int = 3
+    model_width: int = 12
 
     # Dataset
     center_data: bool = False
@@ -170,6 +170,7 @@ class HParams:
         dictionary = self.to_tensorboard_dict()
         dictionary['seed'] = 0
         dictionary['data_seed'] = 0
+        dictionary['use_cuda'] = False
         # This puts experiments under different initializations into the same wandb group
         return hashlib.md5(str(dictionary).encode('utf-8')).hexdigest()
 
