@@ -90,6 +90,22 @@ def process_data(hparams: HParams, data_np: np.ndarray, targets_np: np.ndarray, 
         data = torch.index_select(data, 0, indices)
         targets = torch.index_select(targets, 0, indices)
 
+    # Label corruption (change labels in a portion of the training set to random labels)
+    if hparams.label_corruption is not None:
+        corruption_size, offset_corruption = (int(hparams.label_corruption*hparams.train_dataset_size), 2)
+        rng_label_corruption = np.random.RandomState(
+                hparams.data_seed + offset_corruption) if (hparams.data_seed is not None) else np.random
+        corrupt_indices = rng_label_corruption.choice(hparams.train_dataset_size,
+                corruption_size, replace=False) # Use same rng as data selection
+        corrupt_indices = torch.from_numpy(corrupt_indices)
+        for corrupt_index in corrupt_indices:
+            targets[corrupt_index] = torch.tensor(rng_label_corruption.choice([0, 1]),
+                    dtype=torch.float32)
+
+    # Attack set (add additional attack set in which real labels are flipped)
+    if hparams.attack_dataset_size is not None:
+        raise NotImplementedError
+
     # Put both data and targets on GPU in advance
     return data.to(device), targets.to(device)
 

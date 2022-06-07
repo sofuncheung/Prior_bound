@@ -122,22 +122,25 @@ class Experiment:
     def checkNload(self,) -> None:
         """
         Check whether there is corresponding pt file,
-        if so, check if it's converged.
-        If not, load it.
+        if so, load it.
+
+        # if so, check if it's converged.
+        # If not, load it.
         """
         checkpoint_file = self.config.checkpoint_dir / \
             (self.hparams.md5 + '.pt')
         try:
             ckpt = torch.load(checkpoint_file)
             if ckpt['state'].converged == True:
-                print("Checkpoint file found but already converged. Fresh start.")
+                # print("Checkpoint file found but already converged. Fresh start.")
+                print("Checkpoint file found but already converged. Loading model...")
             else:
-                print("Checkpoint file found, loading model...")
-                self.model.load_state_dict(ckpt['model'])
-                print("Loading init_model")
-                self.init_model.load_state_dict(ckpt['init_model'])
-                print("Loading optimizer")
-                self.optimizer.load_state_dict(ckpt['optimizer'])
+                print("Checkpoint file found and not converged, loading model...")
+            self.model.load_state_dict(ckpt['model'])
+            print("Loading init_model")
+            self.init_model.load_state_dict(ckpt['init_model'])
+            print("Loading optimizer")
+            self.optimizer.load_state_dict(ckpt['optimizer'])
 
         except FileNotFoundError:
             print("No checkpoint file found. Fresh start.")

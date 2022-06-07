@@ -129,6 +129,8 @@ class HParams:
     data_seed: Optional[int] = 42
     train_dataset_size: Optional[int] = 2000
     test_dataset_size: Optional[int] = 10000
+    label_corruption: Optional[float] = None # between [0, 1], the portion of training set that has random labels
+    attack_dataset_size: Optional[int] = None
     # Training
     batch_size: int = 256
     epochs: int = 300
