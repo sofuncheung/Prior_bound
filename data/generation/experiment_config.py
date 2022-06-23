@@ -31,6 +31,7 @@ class ModelType(Enum):
     NiN = 0
     FCN = 1
     CNN = 2
+    FCN_SI = 3
 
 
 class ComplexityType(Enum):
@@ -113,6 +114,8 @@ class HParams:
     # for FCN and gui-CNN
     model_width_tuple: List[int] = field(
         default_factory=lambda: [1024, 1024])
+
+    SI_w_std: float = 1.0 # Only for scale-ignorant FCN initialization
 
     # for gui-CNN only
     intermediate_pooling_type: Optional[str] = None # can be "avg", "max"

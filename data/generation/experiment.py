@@ -57,8 +57,8 @@ class Experiment:
               for p in self.model.parameters() if p.requires_grad))
         self.model.to(device)
         self.init_model = deepcopy(self.model)
-        if (self.hparams.model_type == ModelType.FCN or
-                self.hparams.model_type) == ModelType.NiN:
+        if self.hparams.model_type in [ModelType.FCN,
+                ModelType.NiN, ModelType.FCN_SI]:
             self.model_fc_popped = None
         else:
             self.model_fc_popped = self._get_model_fc_popped(self.hparams)
@@ -91,6 +91,10 @@ class Experiment:
                     hparams.base_width, hparams.dataset_type)
         elif hparams.model_type == ModelType.FCN:
             return FCN(hparams.model_width_tuple, hparams.dataset_type)
+        elif hparams.model_type == ModelType.FCN_SI:
+            return FCN_scale_ignorant(hparams.model_width_tuple,
+                    hparams.dataset_type,
+                    hparams.SI_w_std)
         elif hparams.model_type == ModelType.CNN:
             return CNN(hparams.model_width_tuple,
                     hparams.intermediate_pooling_type,

@@ -166,6 +166,49 @@ class FCN_binary(FCN):
         return x[:,1] - x[:,0]
 
 
+class FCN_scale_ignorant(ExperimentBaseModel):
+    """
+    FCN with weights initialized regardless of fan_in.
+    The inituition is SGD can still train this non-conventionally
+    initialized network, but the corresponding NNGP will perform
+    badly, because the per-unit l2 norm is not bounded anymore.
+    """
+    def __init__(self, width_tuple: list,
+            dataset_type: DatasetType,
+            SI_w_std: float) -> None:
+        super().__init__(dataset_type)
+
+        input_dim = calculate_production(self.dataset_type.D)
+
+        self.number_layers = len(width_tuple) # number of hidden layers
+        self.model = [nn.Flatten()]
+        self.model.append(nn.Linear(input_dim, width_tuple[0]))
+        self.model.append(nn.ReLU(inplace=True))
+        for i in range(len(width_tuple) - 1):
+            self.model.append(nn.Linear(width_tuple[i], width_tuple[i+1]))
+            self.model.append(nn.ReLU(inplace=True))
+        self.model.append(nn.Linear(width_tuple[-1], self.dataset_type.K))
+        self.model = nn.Sequential(*self.model)
+
+        self.SI_w_std = SI_w_std
+        self.apply(self.SI_init)
+
+    def SI_init(self, module):
+        r'''
+        Trivial initialization which every weights are initialized regardless
+        of fan_in.
+
+        The function should be used in conjuction with 'net.apply'
+        '''
+        if isinstance(module, nn.Conv2d) or isinstance(module, nn.Linear):
+            nn.init.normal_(module.weight, mean=0.0, std=self.SI_w_std)
+            if (not (module.bias is None)):
+                nn.init.zeros_(module.bias)
+
+    def forward(self, x):
+        return self.model(x)
+
+
 def cal_image_dim(input_dim: int, l: int) -> int:
     """
     Because we want this CNN to be the same as in Guillermo's paper,

@@ -194,7 +194,7 @@ def get_all_measures(
             xs = xs.cpu()
         if ys.is_cuda:
             ys = ys.cpu()
-        if model_type == ModelType.FCN:
+        if model_type in [ModelType.FCN, ModelType.FCN_SI]:
             # Use analytical arccos kernel
             K = kernel_matrix(xs, model.number_layers, np.sqrt(2), 0)
         else:
@@ -244,7 +244,7 @@ def get_all_measures(
             ys_train = ys_train.cpu()
         ys_train = [[y] for y in ys_train]
 
-        if model_type == ModelType.FCN:
+        if model_type in [ModelType.FCN, ModelType.FCN_SI]:
             K_marg = kernel_matrix(xs_train, model.number_layers, np.sqrt(2), 0)
         else:
             K_marg = empirical_K(model_fc_popped, trainNtest_loaders[0].dataset,
@@ -340,7 +340,7 @@ def get_all_measures(
     dist_spec_norms = torch.cat(
         [p.svd().S.max().unsqueeze(0) ** 2 for p in dist_reshaped_weights])
 
-    if model_type == ModelType.FCN or model_type == ModelType.CNN:
+    if model_type in [ModelType.FCN, ModelType.CNN, ModelType.FCN_SI]:
         #print("Approximate Spectral Norm")
         print("Approximate Spectral Norm for CNN; Exact Spectral Norm for FCN")
         # Note that these use an approximation from [Yoshida and Miyato, 2017]
