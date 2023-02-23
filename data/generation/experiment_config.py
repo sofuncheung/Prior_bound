@@ -38,6 +38,19 @@ class ComplexityType(Enum):
     # GP based Measures
     PRIOR = 1
     MAR_LIK = 2
+    PRIOR_MC = 3
+    PRIOR_ELBO = 4
+    MAR_LIK_MC = 5
+    MAR_LIK_ELBO = 6
+    # PAC-Bayes bound optimization
+    BPAC_OPT = 7
+    B_RE_OPTIMAL = 8
+    MEAN_TRAIN_ACC_STOCH = 9
+    MEAN_TEST_ACC_STOCH = 10
+    TRAIN_ACC_DET = 11
+    TEST_ACC_DET = 12
+    # Path-norm bound
+    PATH_NORM_BOUND = 13
     # Measures from Fantastic Generalization Measures (equation numbers)
     PARAMS = 20
     INVERSE_MARGIN = 22
@@ -81,6 +94,12 @@ class OptimizerType(Enum):
     SGD = 1
     SGD_MOMENTUM = 2
     ADAM = 3
+    NERO = 4
+
+
+class LossType(Enum):
+    CE = 1
+    MSE = 2
 
 
 class Verbosity(IntEnum):
@@ -99,6 +118,7 @@ class State:
     check_freq: int = 0
     ce_check_milestones: Optional[List[float]] = None
     acc_check_milestones: Optional[List[float]] = None
+    prior_weights: Optional[list] = None
 
 
 # Hyperparameters that uniquely determine the experiment
@@ -115,16 +135,16 @@ class HParams:
     model_width_tuple: List[int] = field(
         default_factory=lambda: [1024, 1024])
 
-    SI_w_std: float = 1.0 # Only for scale-ignorant FCN initialization
+    SI_w_std: Optional[float] = None # Only for scale-ignorant FCN initialization
 
     # for gui-CNN only
     intermediate_pooling_type: Optional[str] = None # can be "avg", "max"
-    pooling: Optional[str] = "avg" # can be "avg", "max"
+    pooling: Optional[str] = "max" # can be "avg", "max"
 
     # for NiN
-    base_width: int = 25
-    model_depth: int = 2
-    model_width: int = 8
+    base_width: Optional[int] = None # for NiN defalut is 25
+    model_depth: Optional[int] = None # NiN default 2
+    model_width: Optional[int] = None # NiN default 8
 
     # Dataset
     center_data: bool = False
@@ -135,6 +155,7 @@ class HParams:
     label_corruption: Optional[float] = None # between [0, 1], the portion of training set that has random labels
     attack_dataset_size: Optional[int] = None
     # Training
+    loss: LossType = LossType.CE
     batch_size: int = 256
     epochs: int = 300
     optimizer_type: OptimizerType = OptimizerType.ADAM
@@ -156,9 +177,15 @@ class HParams:
         # these two would be neglected if stop_by_full_train_acc=True
 
     # GP measures related
-    compute_prior: bool = True
+    compute_prior: bool = False
     compute_mar_lik: bool = True
     normalize_kernel: bool = False
+    PU_MC: bool = False # Use MC method to calculate PU, as proposed in Jeremy v1
+    PU_EP: bool = True
+    PU_MC_sample: int = 100000
+    use_empirical_K:bool = False
+
+    optimize_PAC_Bayes_bound: bool = False
 
     def to_tensorboard_dict(self) -> dict:
         d = asdict(self)

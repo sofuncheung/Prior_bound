@@ -30,16 +30,20 @@ class CustomMean(GPy.core.Mapping):
     def gradients_X(self, dL_dF, X):
         return np.zeros_like(X)
 
-def nngp_mse_heaviside_posteror_params(Xtrain,Ytrain,Xtest,Kfull):
-
+def nngp_mse_heaviside_posteror_params(Xtrain,Ytrain,Xtest,Kfull,noise=True):
     #find out the analytical posterior
+    # NOTE: here the noise=True/False is whether to add on the test set or not.
+    # If you want noise-free observations on training set, you need to set the variance of 
+    # Gaussian likelihood to be zero.
     Xfull =  np.concatenate([Xtrain,Xtest])
     inference_method = GPy.inference.latent_function_inference.exact_gaussian_inference.ExactGaussianInference()
-    lik = GPy.likelihoods.gaussian.Gaussian(variance=0.002)
+    lik = GPy.likelihoods.gaussian.Gaussian(variance=0)
     kernel = CustomMatrix(Xfull.shape[1],Xfull,Kfull)
     gp_model = GPy.core.GP(X=Xtrain,Y=Ytrain,kernel=kernel,inference_method=inference_method, likelihood=lik)
-    mean, cov = gp_model.predict(Xtest,full_cov=True)
-
+    if noise == True:
+        mean, cov = gp_model.predict(Xtest,full_cov=True)
+    else:
+        mean, cov = gp_model.predict_noiseless(Xtest,full_cov=False)
     return mean, cov
 
 def nngp_mse_heaviside_posteror_logp(Xtest,Ytest,mean,cov):
@@ -57,3 +61,12 @@ def nngp_mse_heaviside_posteror_logp(Xtest,Ytest,mean,cov):
 
     # return m.log_prior()
     return m.log_likelihood()
+
+
+
+
+
+
+
+
+

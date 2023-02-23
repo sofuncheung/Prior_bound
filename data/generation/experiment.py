@@ -1,3 +1,4 @@
+from sys import exit
 from copy import deepcopy
 import random
 from typing import Optional
@@ -16,10 +17,12 @@ from .experiment_config import (
     State,
     EvaluationMetrics,
     OptimizerType,
+    LossType
 )
 from .logs import BaseLogger, Printer
 from .measures import get_all_measures
 from .models import *
+from .nero import Nero
 
 
 class Experiment:
@@ -55,13 +58,41 @@ class Experiment:
         self.model = self._get_model(self.hparams)
         print("Number of parameters", sum(p.numel()
               for p in self.model.parameters() if p.requires_grad))
+        print("Model architecture:")
+        print(self.model)
+
         self.model.to(device)
         self.init_model = deepcopy(self.model)
-        if self.hparams.model_type in [ModelType.FCN,
-                ModelType.NiN, ModelType.FCN_SI]:
-            self.model_fc_popped = None
+
+        if self.hparams.use_empirical_K == True:
+            new_layers_list = []
+            recursive_modules_length = len(list(self.model.modules()))
+            if hparams.model_type == ModelType.CNN:
+                for idx, m in enumerate(self.model.modules()):
+                    if (idx == 0 and m.__class__.__name__ == "CNN" ) or (
+                            idx == 1 and m.__class__.__name__ == "Sequential"):
+                        continue
+                    elif (idx == recursive_modules_length - 1 and
+                            m.__class__.__name__ == "Linear"):
+                        break
+                    else:
+                        new_layers_list.append(deepcopy(m))
+            elif hparams.model_type == ModelType.FCN:
+                for idx, m in enumerate(self.model.modules()):
+                    if (idx == 0 and m.__class__.__name__ == "FCN" ) or (
+                            idx == 1 and m.__class__.__name__ == "Sequential"):
+                        continue
+                    elif (idx == recursive_modules_length - 1 and
+                            m.__class__.__name__ == "Linear"):
+                        break
+                    else:
+                        new_layers_list.append(deepcopy(m))
+
+            self.model_fc_popped = torch.nn.Sequential(*new_layers_list)
+            print("Model with last layer popped:")
+            print(self.model_fc_popped)
         else:
-            self.model_fc_popped = self._get_model_fc_popped(self.hparams)
+            self.model_fc_popped = None
 
         # Optimizer
         if self.hparams.optimizer_type == OptimizerType.SGD:
@@ -72,6 +103,9 @@ class Experiment:
                 self.model.parameters(), lr=self.hparams.lr, momentum=0.9)
         elif self.hparams.optimizer_type == OptimizerType.ADAM:
             self.optimizer = torch.optim.Adam(
+                self.model.parameters(), lr=self.hparams.lr)
+        elif self.hparams.optimizer_type == OptimizerType.NERO:
+            self.optimizer = Nero(
                 self.model.parameters(), lr=self.hparams.lr)
         else:
             raise KeyError
@@ -169,10 +203,14 @@ class Experiment:
             self.optimizer.zero_grad()
 
             logits = self.model(data).squeeze(-1)
-            cross_entropy = F.binary_cross_entropy_with_logits(logits, target)
-
-            cross_entropy.backward()
-            loss = cross_entropy.clone()
+            if self.hparams.loss == LossType.CE:
+                cross_entropy = F.binary_cross_entropy_with_logits(logits, target)
+                cross_entropy.backward()
+                loss = cross_entropy.clone()
+            elif  self.hparams.loss == LossType.MSE:
+                mse = F.mse_loss(logits, target, reduction='mean')
+                mse.backward()
+                loss = mse.clone()
 
             self.model.train()
 
@@ -182,15 +220,20 @@ class Experiment:
             self.printer.batch_end(
                 self.config, self.state, data, self.train_loader, loss)
             self.logger.log_batch_end(
-                self.config, self.state, cross_entropy, loss)
+                self.config, self.state, loss)
 
             if batch_idx == check_batches[0]:
                 check_batches.pop(0)
                 is_last_batch = batch_idx == (len(self.train_loader)-1)
                 if self.hparams.stop_by_full_train_acc == True:
                     # Accuracy stopping check
-                    train_acc = self.evaluate_cross_entropy(
-                            DatasetSubsetType.TRAIN, log=is_last_batch)[1]
+                    if self.hparams.loss == LossType.CE:
+                        train_acc = self.evaluate_cross_entropy(
+                                DatasetSubsetType.TRAIN, log=is_last_batch)[1]
+                    elif self.hparams.loss == LossType.MSE:
+                        train_acc = self.evaluate_mse(
+                                DatasetSubsetType.TRAIN, log=is_last_batch)[1]
+
                     if train_acc == self.hparams.acc_target:
                         self.state.converged = True
                     else:
@@ -205,20 +248,23 @@ class Experiment:
                                 self.save_state(f'_acc_{passed_milestone}')
 
                 else:
-                    # Cross-entropy stopping check
-                    dataset_ce = self.evaluate_cross_entropy(
-                        DatasetSubsetType.TRAIN, log=is_last_batch)[0]
-                    if dataset_ce < self.hparams.ce_target:
-                        self.state.converged = True
-                    else:
-                        while len(self.state.ce_check_milestones) > 0 and dataset_ce <= self.state.ce_check_milestones[0]:
-                            passed_milestone = self.state.ce_check_milestones[0]
-                            print(f'passed ce milestone {passed_milestone}')
-                            self.state.ce_check_milestones.pop(0)
-                            self.state.check_freq += 1
-                            # if passed one milestone, double the ce check frequency
-                            if self.config.save_epoch_freq is not None:
-                                self.save_state(f'_ce_{passed_milestone}')
+                    if self.hparams.loss == LossType.CE:
+                        # Cross-entropy stopping check
+                        dataset_ce = self.evaluate_cross_entropy(
+                            DatasetSubsetType.TRAIN, log=is_last_batch)[0]
+                        if dataset_ce < self.hparams.ce_target:
+                            self.state.converged = True
+                        else:
+                            while len(self.state.ce_check_milestones) > 0 and dataset_ce <= self.state.ce_check_milestones[0]:
+                                passed_milestone = self.state.ce_check_milestones[0]
+                                print(f'passed ce milestone {passed_milestone}')
+                                self.state.ce_check_milestones.pop(0)
+                                self.state.check_freq += 1
+                                # if passed one milestone, double the ce check frequency
+                                if self.config.save_epoch_freq is not None:
+                                    self.save_state(f'_ce_{passed_milestone}')
+                    elif self.hparams.loss == LossType.MSE:
+                        raise NotImplementedError
 
             if self.state.converged:
                 break
@@ -237,6 +283,7 @@ class Experiment:
             if is_evaluation_epoch or self.state.converged:
                 train_eval = self.evaluate(
                     DatasetSubsetType.TRAIN, (epoch == self.hparams.epochs or self.state.converged))
+
                 val_eval = self.evaluate(DatasetSubsetType.TEST)
                 self.logger.log_generalization_gap(
                     self.state, train_eval.acc, val_eval.acc, train_eval.avg_loss, val_eval.avg_loss, train_eval.all_complexities)
@@ -260,28 +307,41 @@ class Experiment:
         if train_eval is None or val_eval is None:
             raise RuntimeError
 
-    @torch.no_grad()
+    @torch.no_grad() # This will cause any future tensors
+                     # (which are operations on current parameters, like weights*2)
+                     # have requires_grad = False
     def evaluate(self, dataset_subset_type: DatasetSubsetType, compute_all_measures: bool = False) -> EvaluationMetrics:
         self.model.eval()
         data_loader = [self.train_eval_loader,
                        self.test_loader][dataset_subset_type]
         trainNtest_loaders = (self.train_eval_loader, self.test_loader)
 
-        cross_entropy_loss, acc, num_correct = self.evaluate_cross_entropy(
-            dataset_subset_type)
+        if self.hparams.loss == LossType.CE:
+            cross_entropy_loss, acc, num_correct = self.evaluate_cross_entropy(
+                dataset_subset_type)
+        elif self.hparams.loss == LossType.MSE:
+            mse_loss, acc, num_correct = self.evaluate_mse(dataset_subset_type)
 
         all_complexities = {}
         if dataset_subset_type == DatasetSubsetType.TRAIN and compute_all_measures:
             all_complexities = get_all_measures(
                 self.model, self.init_model, self.model_fc_popped,
-                trainNtest_loaders, acc, self.hparams.seed, self.hparams.model_type,
-                self.hparams.compute_mar_lik, self.hparams.compute_prior,
-                self.hparams.normalize_kernel)
+                trainNtest_loaders, acc,
+                self.hparams
+                )
 
-        self.logger.log_epoch_end(
-            self.hparams, self.state, dataset_subset_type, cross_entropy_loss, acc)
+        if self.hparams.loss == LossType.CE:
+            self.logger.log_epoch_end(
+                self.hparams, self.state, dataset_subset_type, cross_entropy_loss, acc)
 
-        return EvaluationMetrics(acc, cross_entropy_loss, num_correct, len(data_loader.dataset), all_complexities)
+            return EvaluationMetrics(acc, cross_entropy_loss, num_correct, len(data_loader.dataset), all_complexities)
+
+        elif self.hparams.loss == LossType.MSE:
+            self.logger.log_epoch_end(
+                self.hparams, self.state, dataset_subset_type, mse_loss, acc)
+
+            return EvaluationMetrics(acc, mse_loss, num_correct, len(data_loader.dataset), all_complexities)
+
 
     @torch.no_grad()
     def evaluate_cross_entropy(self, dataset_subset_type: DatasetSubsetType, log: bool = False):
@@ -313,3 +373,39 @@ class Experiment:
             self.logger.log_epoch_end(
                 self.hparams, self.state, dataset_subset_type, cross_entropy_loss, acc)
         return cross_entropy_loss, acc, num_correct
+
+
+    @torch.no_grad()
+    def evaluate_mse(self, dataset_subset_type: DatasetSubsetType, log: bool = False):
+        self.model.eval()
+        mse_loss = 0
+        num_correct = 0
+
+        data_loader = [self.train_eval_loader,
+                       self.test_loader][dataset_subset_type]
+        num_to_evaluate_on = len(data_loader.dataset)
+
+        for data, target in data_loader:
+            data, target = data.to(self.device, non_blocking=True), target.to(
+                self.device, non_blocking=True)
+            logits = self.model(data).squeeze(-1)
+            mse = F.mse_loss(logits, target, reduction='sum')
+            mse_loss += mse.item()  # sum up batch loss
+
+            pred = torch.where(logits.data>0, 1, -1)
+            batch_correct = pred.eq(target.data.view_as(
+                pred)).type(torch.FloatTensor).cpu()
+            num_correct += batch_correct.sum()
+
+        mse_loss /= num_to_evaluate_on
+        acc = num_correct.item() / num_to_evaluate_on
+
+        if log:
+            self.logger.log_epoch_end(
+                self.hparams, self.state, dataset_subset_type, mse_loss, acc)
+        return mse_loss, acc, num_correct
+
+    @staticmethod
+    def get_weights_and_biases_data(model):
+                blacklist = {'bn'}
+                return [p.data for name, p in model.named_parameters() if all(x not in name for x in blacklist)]

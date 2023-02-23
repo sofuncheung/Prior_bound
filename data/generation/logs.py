@@ -12,6 +12,7 @@ from .experiment_config import (
     State,
     EvaluationMetrics,
     Verbosity,
+    LossType,
 )
 
 
@@ -23,13 +24,11 @@ class BaseLogger(object):
         self,
         config: Config,
         state: State,
-        cross_entropy: Tensor,
         loss: Tensor,
     ) -> None:
         if config.log_batch_freq is not None and state.global_batch % config.log_batch_freq == 0:
             # Collect metrics for logging
             metrics = {
-                'cross_entropy/minibatch': cross_entropy.item(),
                 'loss/minibatch': loss.item(),
             }
             # Send metrics to logger
@@ -45,12 +44,20 @@ class BaseLogger(object):
             })
 
     def log_epoch_end(self, hparams: HParams, state: State, datasubset: DatasetSubsetType, avg_loss: float, acc: float) -> None:
-        self.log_metrics(
-            state.global_batch,
-            {
-                'cross_entropy/{}'.format(datasubset.name.lower()): avg_loss,
-                'accuracy/{}'.format(datasubset.name.lower()): acc,
-            })
+        if hparams.loss == LossType.CE:
+            self.log_metrics(
+                state.global_batch,
+                {
+                    'cross_entropy/{}'.format(datasubset.name.lower()): avg_loss,
+                    'accuracy/{}'.format(datasubset.name.lower()): acc,
+                })
+        elif hparams.loss == LossType.MSE:
+            self.log_metrics(
+                state.global_batch,
+                {
+                    'mse/{}'.format(datasubset.name.lower()): avg_loss,
+                    'accuracy/{}'.format(datasubset.name.lower()): acc,
+                })
 
 
 class WandbLogger(BaseLogger):

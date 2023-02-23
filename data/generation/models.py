@@ -126,11 +126,11 @@ class FCN(ExperimentBaseModel):
     def __init__(self, width_tuple: list, dataset_type: DatasetType) -> None:
         super().__init__(dataset_type)
 
-        input_dim = calculate_production(self.dataset_type.D)
-
+        self.input_dim = calculate_production(self.dataset_type.D)
+        self.width_tuple = width_tuple
         self.number_layers = len(width_tuple) # number of hidden layers
         self.model = [nn.Flatten()]
-        self.model.append(nn.Linear(input_dim, width_tuple[0]))
+        self.model.append(nn.Linear(self.input_dim, width_tuple[0]))
         self.model.append(nn.ReLU(inplace=True))
         for i in range(len(width_tuple) - 1):
             self.model.append(nn.Linear(width_tuple[i], width_tuple[i+1]))
@@ -138,6 +138,7 @@ class FCN(ExperimentBaseModel):
         self.model.append(nn.Linear(width_tuple[-1], self.dataset_type.K))
         self.model = nn.Sequential(*self.model)
         self.apply(self.he_init)
+        self.init_w_b = self.get_weights_and_biases_data(self.model)
 
     def he_init(self, module):
         r'''
@@ -149,21 +150,57 @@ class FCN(ExperimentBaseModel):
                     mode='fan_in', # GP only involves feed-forward process
                     nonlinearity='relu') # so gain = sqrt(2)
             if (not (module.bias is None)):
-                nn.init.zeros_(module.bias)
+                nn.init.normal_(module.bias, std=0.1)
+
+    @staticmethod
+    def get_weights_and_biases_data(model):
+        return [p.data for name, p in model.named_parameters()]
+
 
     def forward(self, x):
         return self.model(x)
 
 
-class FCN_binary(FCN):
+class FCN_binary_test(ExperimentBaseModel):
     def __init__(self, width_tuple: list, dataset_type: DatasetType) -> None:
-        super().__init__(width_tuple, dataset_type)
+        super().__init__(dataset_type)
 
-        input_dim = calculate_production(self.dataset_type.D)
+        self.input_dim = calculate_production(self.dataset_type.D)
+        self.width_tuple = width_tuple
+        self.number_layers = len(width_tuple) # number of hidden layers
+        self.model = [nn.Flatten()]
+        self.model.append(nn.Linear(self.input_dim, width_tuple[0]))
+        self.model.append(nn.ReLU(inplace=True))
+        for i in range(len(width_tuple) - 1):
+            self.model.append(nn.Linear(width_tuple[i], width_tuple[i+1]))
+            self.model.append(nn.ReLU(inplace=True))
+        self.model.append(nn.Linear(width_tuple[-1], 2))
+        self.model = nn.Sequential(*self.model)
+        self.apply(self.he_init)
+        self.init_w_b = self.get_weights_and_biases_data(self.model)
+
+    def he_init(self, module):
+        r'''
+        He-normal initialization for GP volume calculation.
+        The function should be used in conjuction with 'net.apply'
+        '''
+        if isinstance(module, nn.Conv2d) or isinstance(module, nn.Linear):
+            nn.init.kaiming_normal_(module.weight,
+                    mode='fan_in', # GP only involves feed-forward process
+                    nonlinearity='relu') # so gain = sqrt(2)
+            if (not (module.bias is None)):
+                nn.init.normal_(module.bias, std=0.1)
+
+    @staticmethod
+    def get_weights_and_biases_data(model):
+        return [p.data for name, p in model.named_parameters()]
 
     def forward(self, x):
         x = self.model(x)
         return x[:,1] - x[:,0]
+
+    # If using this model for empirical kernal calculation, the final result needs to be 
+    # divided by 2. This can be easily seen by Cov( y1-y2, y1'-y2' ) = 2 x Cov( y1, y1' ) = 2 x Cov(y2, y2')
 
 
 class FCN_scale_ignorant(ExperimentBaseModel):
@@ -203,7 +240,7 @@ class FCN_scale_ignorant(ExperimentBaseModel):
         if isinstance(module, nn.Conv2d) or isinstance(module, nn.Linear):
             nn.init.normal_(module.weight, mean=0.0, std=self.SI_w_std)
             if (not (module.bias is None)):
-                nn.init.zeros_(module.bias)
+                nn.init.normal_(module.bias, std=0.1)
 
     def forward(self, x):
         return self.model(x)
@@ -280,7 +317,7 @@ class CNN(ExperimentBaseModel):
                     self.model.append(nn.AvgPool2d(2, count_include_pad=False))
                 elif intermediate_pooling_type == "max":
                     self.model.append(nn.MaxPool2d(2))
-        # Global pooling
+        #Global pooling
         if pooling == "avg":
             self.model.append(nn.AdaptiveAvgPool2d((1, 1)))
         elif pooling == "max":
@@ -289,6 +326,21 @@ class CNN(ExperimentBaseModel):
         self.model.append(nn.Flatten())
         self.model.append(nn.Linear(width_tuple[-1], self.dataset_type.K))
         self.model = nn.Sequential(*self.model)
+        self.apply(self.he_init)
+
+    def he_init(self, module):
+        r'''
+        He-normal initialization for GP volume calculation.
+        The function should be used in conjuction with 'net.apply'
+        (21 Feb 2023) Also note that in Guillermo's CNN vs layers
+        experiments, sigmab = 0.1.
+        '''
+        if isinstance(module, nn.Conv2d) or isinstance(module, nn.Linear):
+            nn.init.kaiming_normal_(module.weight,
+                    mode='fan_in', # GP only involves feed-forward process
+                    nonlinearity='relu') # so gain = sqrt(2)
+            if (not (module.bias is None)):
+                nn.init.normal_(module.bias, std=0.1)
 
     def forward(self, x):
         return self.model(x)

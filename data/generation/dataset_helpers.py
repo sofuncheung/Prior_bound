@@ -6,7 +6,7 @@ import torch
 from torch.utils.data import DataLoader
 import torchvision as tv
 
-from .experiment_config import Config, DatasetType, HParams
+from .experiment_config import Config, DatasetType, HParams, LossType
 
 
 def get_dataloaders(hparams: HParams, config: Config, device: torch.device) -> Tuple[DataLoader, DataLoader, DataLoader]:
@@ -76,6 +76,11 @@ def process_data(hparams: HParams, data_np: np.ndarray, targets_np: np.ndarray, 
     if binary:
         print('Using binary data...')
         targets_np = np.where(targets_np < 5, 0, 1)
+
+        # For MSE loss using +1 -1 labels
+        if hparams.loss == LossType.MSE:
+            targets_np = np.where(targets_np == 0, -1, 1)
+
 
     # Numpy -> Torch
     data = torch.tensor(data_np, dtype=torch.float32) # Memory checkpoint

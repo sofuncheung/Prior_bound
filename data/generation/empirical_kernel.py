@@ -5,7 +5,10 @@ import torch
 import torch.nn as nn
 
 
-def empirical_K(model, data, number_samples, device, seed,
+def empirical_K(model, data, number_samples,
+        sigmaw,
+        sigmab,
+        device, seed,
         n_gpus=1,
         empirical_kernel_batch_size=5000,
         truncated_init_dist=False,
@@ -50,9 +53,9 @@ def empirical_K(model, data, number_samples, device, seed,
 
     m = len(data)
     if device == 'cuda':
-        covs = torch.zeros([m, m], dtype=torch.float16).to(device)
+        covs = torch.zeros([m, m], dtype=torch.float32).to(device)
     else:
-        covs = np.zeros((m,m), dtype=np.float16)
+        covs = np.zeros((m,m), dtype=np.float32)
     local_index = 0 # index of task in a particular precess
     update_chunk = 10000 # Guillermo use 10000
     num_chunks = covs.shape[0]//update_chunk
@@ -77,51 +80,62 @@ def empirical_K(model, data, number_samples, device, seed,
 
         X = model_predict(model, data,
                 min(empirical_kernel_batch_size, len(data)), device)
-        # X is the SINGLE logits in this set of prior bound comparison experiments
         if device == 'cuda':
             if len(X.shape) == 1:
                 X.unsqueeze_(1)
             if covs.shape[0] > update_chunk:
                 for i in range(num_chunks):
                     covs[i*update_chunk:(i+1)*update_chunk] += (
-                            (1/X.shape[1]) * torch.matmul(
-                                X[i*update_chunk:(i+1) * update_chunk], X.T))
+                            (sigmaw**2/X.shape[1]) * torch.matmul(
+                                X[i*update_chunk:(i+1) * update_chunk], X.T) +
+                            (sigmab**2) * torch.ones(update_chunk, X.shape[0])
+                            )
                 last_bits = slice(update_chunk*num_chunks,covs.shape[0])
                 covs[last_bits] += (
-                        (1/X.shape[1]) *
-                        torch.matmul(X[last_bits], X.T))
+                        (sigmaw**2/X.shape[1]) *
+                        torch.matmul(X[last_bits], X.T) +
+                        (sigmab**2) *
+                        torch.ones(last_bits.stop-last_bits.start, X.shape[0])
+                        )
             else:
-                covs += (1 / X.shape[1]) * torch.matmul(X,X.T)
+                covs += (sigmaw**2 / X.shape[1]) * torch.matmul(X,X.T) + sigmab**2
         else: # On cpu and use numpy
             if len(X.shape) == 1:
                 X = np.expand_dims(X, 1)
             if covs.shape[0] > update_chunk:
                 for i in range(num_chunks):
                     covs[i*update_chunk:(i+1)*update_chunk] += (
-                            (1/X.shape[1]) * np.matmul(
-                                X[i*update_chunk:(i+1) * update_chunk], X.T))
+                            (sigmaw**2/X.shape[1]) * np.matmul(
+                                X[i*update_chunk:(i+1) * update_chunk], X.T) +
+                            (sigmab**2) *
+                            np.ones((update_chunk, X.shape[0]), dtype=np.float32)
+                            )
                 last_bits = slice(update_chunk*num_chunks,covs.shape[0])
                 covs[last_bits] += (
-                        (1/X.shape[1]) *
-                        np.matmul(X[last_bits],X.T))
+                        (sigmaw**2/X.shape[1]) *
+                        np.matmul(X[last_bits],X.T) +
+                        (sigmab**2) * np.ones(
+                            (last_bits.stop-last_bits.start,X.shape[0]),
+                            dtype=np.float32)
+                        )
             else:
-                covs += (1 / X.shape[1]) * np.matmul(X,X.T)
+                covs += (sigmaw**2 / X.shape[1]) * np.matmul(X,X.T) + sigmab**2
         sys.stdout.flush()
         local_index += 1
         gc.collect()
         if index % 100 == 0:
-            print("--- %s seconds ---" % (time.time() - start_time))
+            print("--- %s seconds for each sampling ---" % (time.time() - start_time))
 
     if size > 1 and not store_partial_kernel:
         covs1_recv = None
         covs2_recv = None
         if rank == 0: # Do following in the first (main) process
             if device == 'cuda':
-                covs1_recv = torch.zeros_like(covs[:25000,:], dtype=torch.float16)
-                covs2_recv = torch.zeros_like(covs[25000:,:], dtype=torch.float16)
+                covs1_recv = torch.zeros_like(covs[:25000,:], dtype=torch.float32)
+                covs2_recv = torch.zeros_like(covs[25000:,:], dtype=torch.float32)
             else:
-                covs1_recv = np.zeros_like(covs[:25000,:], dtype=np.float16)
-                covs2_recv = np.zeros_like(covs[25000:,:], dtype=np.float16)
+                covs1_recv = np.zeros_like(covs[:25000,:], dtype=np.float32)
+                covs2_recv = np.zeros_like(covs[25000:,:], dtype=np.float32)
         #print(covs[25000:,:])
         comm.Reduce(covs[:25000,:], covs1_recv, op=MPI.SUM, root=0)
         comm.Reduce(covs[25000:,:], covs2_recv, op=MPI.SUM, root=0)
@@ -144,9 +158,15 @@ def empirical_K(model, data, number_samples, device, seed,
             return covs/number_samples
 
 
-def weight_reset(m):
+def weight_reset(m): # using Kaiming normal initialization
     if isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear):
-        m.reset_parameters()
+        nn.init.kaiming_normal_(m.weight,
+                mode='fan_in', # GP only involves feed-forward process
+                nonlinearity='relu') # so gain = sqrt(2)
+        if (not (m.bias is None)):
+            #nn.init.zeros_(m.bias)
+            nn.init.normal_(m.bias, std=0.1)
+
     if isinstance(m, nn.BatchNorm2d):
         pass
     # I have checked that upon different initializations the four
@@ -187,13 +207,15 @@ def model_predict(model, data, batch_size, device):
 if __name__ == '__main__':
     from .experiment_config import HParams as hparams
     from .experiment_config import Config as config
-    from .models import NiN_binary
+    from .models import NiN_binary, FCN, FCN_binary_test
     from .dataset_helpers import get_dataloaders
     device = 'cuda' if hparams.use_cuda else 'cpu'
-    model = NiN_binary(hparams.model_depth, hparams.model_width,
-                hparams.base_width, hparams.dataset_type)
+    #model = NiN_binary(hparams.model_depth, hparams.model_width,
+    #            hparams.base_width, hparams.dataset_type)
+    #model = FCN([1024,1024], hparams.dataset_type)
+    model = FCN_binary_test([1024,1024], hparams.dataset_type)
     (_,train_eval_loader,_) = get_dataloaders(hparams, config, device)
-    K = empirical_K(model, train_eval_loader.dataset, 10, device, hparams.seed,
+    K = empirical_K(model, train_eval_loader.dataset, 1e3, device, hparams.seed,
             n_gpus=1,
             empirical_kernel_batch_size=256,
             truncated_init_dist=False,
@@ -201,5 +223,7 @@ if __name__ == '__main__':
             partial_kernel_n_proc=1,
             partial_kernel_index=0,
             )
-    print(K.shape)
+    #print(K.shape)
+    np.save('K_emp.npy', K.cpu())
+
 

@@ -1,4 +1,5 @@
 import GPy
+import numpy as np
 import os, sys
 THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.abspath(os.path.join(THIS_DIR, os.pardir))
@@ -47,7 +48,6 @@ def GP_prob(K,X,Y,parallel_updates=True,method="EP", using_exactPB=False):
     # m.likelihood = lik
     #m.inference_method = GPy.inference.latent_function_inference.PEP(alpha = 0.5)
     if using_exactPB:
-        import numpy as np
         mean, cov = m._raw_predict(X, full_cov=True)
         alpha = np.linalg.solve(K,mean)
         # m.log_likelihood()
@@ -62,6 +62,30 @@ def GP_prob(K,X,Y,parallel_updates=True,method="EP", using_exactPB=False):
     else:
         return m.log_likelihood()
     # return -KL[0,0]
+
+
+def nngp_Heaviside_likelihood_posterior(Xtrain, Ytrain, Xtest, Kfull, parallel_updates=True):
+    Xfull =  np.concatenate([Xtrain,Xtest])
+    inference_method = GPy.inference.latent_function_inference.expectation_propagation.EP(
+            parallel_updates=parallel_updates, epsilon=1.0e-6, delta=1.0)
+    linkfun = GPy.likelihoods.link_functions.Heaviside()
+    lik = GPy.likelihoods.Bernoulli(linkfun)
+    kernel = CustomMatrix(Xfull.shape[1], Xfull, Kfull)
+    gp_model = GPy.core.GP(X=Xtrain, Y=Ytrain, kernel=kernel,
+            inference_method=inference_method, likelihood=lik)
+
+    mean, cov = gp_model.predict_noiseless(Xtest, full_cov=False)
+    return mean, cov
+
+
+
+
+
+
+
+
+
+
 
 '''PLAYGROUND'''
 

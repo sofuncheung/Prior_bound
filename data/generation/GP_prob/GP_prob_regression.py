@@ -7,11 +7,14 @@ sys.path.append(GP_prob_folder)
 import numpy as np
 from numpy.linalg import inv
 from numpy import matmul
+import scipy
+
 
 # import neural_tangents as nt
 # from neural_tangents import stax
 
-def GP_prob(K,X,Y,sigma_noise=1.0, posterior="bayes"):
+def GP_prob_regression_KL(K,X,Y,sigma_noise=1.0, posterior="bayes"):
+    # here Y should be the raw output logits
     n = X.shape[0]
     if posterior=="bayes":
         alpha = matmul(inv(np.eye(n)*(sigma_noise**2)+K),Y)
@@ -25,6 +28,57 @@ def GP_prob(K,X,Y,sigma_noise=1.0, posterior="bayes"):
     coviK = matmul(covi,K)
     KL = 0.5*np.log(np.linalg.det(coviK)) + 0.5*np.trace(inv(coviK)) + 0.5*matmul(alpha.T,matmul(K,alpha)) - n/2
     return -KL[0,0]
+
+# This is the KL between the prior P(f) ~ N(0, K) and the posterior
+# P(f|S) ~ N( K(K+sigma^2 I)^{-1}f, sigma^2 K(K+sigma^2 I)^{-1} )
+# The calculation of posterior is just production of two Gaussian pdf
+# whose analytical form is given here:
+# https://math.stackexchange.com/questions/157172/product-of-two-multivariate-gaussians-distributions
+# Note that there are at least two ways of writing the product mean and variance.
+
+def GP_prob_pf(K, X, f):
+    # calculate the prior probability of a function f \in R^m restricted on the sample X
+    # f is the raw output of NNGP last layer single logits
+    n = X.shape[0]
+    assert f.shape == (n, 1)
+    id_mtx = np.eye(n)
+
+    assert np.abs(K - K.T).max() < 1e-6
+    fac, lower = scipy.linalg.cho_factor(K, check_finite=False)
+    inv = scipy.linalg.cho_solve((fac, lower), id_mtx)
+    assert np.abs(np.matmul(K, inv) - id_mtx).max() < 1e-03
+
+    # det = np.prod(np.power(fac.diagonal(), 2)) # This will be very close to zero!
+    log_det = np.log(fac.diagonal()).sum()
+    inv_proj = np.matmul(f.T, np.matmul(inv, f))
+
+    return -0.5 * inv_proj - 0.5*n*np.log(2*np.pi) - log_det
+
+def GP_regression_noiseless_posterior(K, K_cross, K_diag_test, f):
+    # Guillermo's implementation involves calculating Kfull on the Xfull = cat(Xtrain, Xtest)
+    # but we just need the K(X, X*) and the digonal terms of K(X*, X*). So I decided to use a
+    # quicker implementation.
+    #
+    # K is the NNGP kernel Gram matrix on training set
+    # K_cross is the covariances between samples in the training set and test set
+    # K_diag_test is the self-variances on the test set.
+
+    n = K.shape[0]
+    assert f.shape == (n, 1)
+    id_mtx = np.eye(n)
+
+    assert np.abs(K - K.T).max() < 1e-6
+    fac, lower = scipy.linalg.cho_factor(K, check_finite=False)
+    inv = scipy.linalg.cho_solve((fac, lower), id_mtx)
+
+    mean = np.matmul(K_cross.T, np.matmul(inv, f)).squeeze(1)
+    variance = K_diag_test - ((K_cross * np.matmul(inv, K_cross)).sum(axis=0)).T
+
+    return (mean, variance)
+
+
+
+
 
 '''PLAYGROUND'''
 
