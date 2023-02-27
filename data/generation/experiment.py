@@ -58,8 +58,8 @@ class Experiment:
         self.model = self._get_model(self.hparams)
         print("Number of parameters", sum(p.numel()
               for p in self.model.parameters() if p.requires_grad))
-        print("Model architecture:")
-        print(self.model)
+        # print("Model architecture:")
+        # print(self.model)
 
         self.model.to(device)
         self.init_model = deepcopy(self.model)
@@ -77,6 +77,7 @@ class Experiment:
                         break
                     else:
                         new_layers_list.append(deepcopy(m))
+                self.model_fc_popped = torch.nn.Sequential(*new_layers_list)
             elif hparams.model_type == ModelType.FCN:
                 for idx, m in enumerate(self.model.modules()):
                     if (idx == 0 and m.__class__.__name__ == "FCN" ) or (
@@ -87,10 +88,14 @@ class Experiment:
                         break
                     else:
                         new_layers_list.append(deepcopy(m))
+                self.model_fc_popped = torch.nn.Sequential(*new_layers_list)
+            elif hparams.model_type == ModelType.RESNET50:
+                self.model_fc_popped = ResNet_pop_fc_50(self.hparams.dataset_type)
+            elif hparams.model_type == ModelType.DENSENET121:
+                self.model_fc_popped = DenseNet121_fc_popped(self.hparams.dataset_type)
 
-            self.model_fc_popped = torch.nn.Sequential(*new_layers_list)
-            print("Model with last layer popped:")
-            print(self.model_fc_popped)
+            # print("Model with last layer popped:")
+            # print(self.model_fc_popped)
         else:
             self.model_fc_popped = None
 
@@ -134,7 +139,12 @@ class Experiment:
                     hparams.intermediate_pooling_type,
                     hparams.pooling,
                     hparams.dataset_type)
+        elif hparams.model_type == ModelType.RESNET50:
+            return ResNet50(hparams.dataset_type)
+        elif hparams.model_type == ModelType.DENSENET121:
+            return DenseNet121(hparams.dataset_type)
 
+    """
     @staticmethod
     def _get_model_fc_popped(hparams: HParams) -> ModelType:
         if hparams.model_type == ModelType.CNN:
@@ -142,7 +152,7 @@ class Experiment:
                     hparams.intermediate_pooling_type,
                     hparams.pooling,
                     hparams.dataset_type)
-
+    """
 
     def save_state(self, postfix: str = '') -> None:
         checkpoint_file = self.config.checkpoint_dir / \
@@ -169,6 +179,7 @@ class Experiment:
             (self.hparams.md5 + '.pt')
         try:
             ckpt = torch.load(checkpoint_file)
+            print("Checkpoint file with md5 %s loaded" % self.hparams.md5)
             if ckpt['state'].converged == True:
                 # print("Checkpoint file found but already converged. Fresh start.")
                 print("Checkpoint file found but already converged. Loading model...")
@@ -181,7 +192,7 @@ class Experiment:
             self.optimizer.load_state_dict(ckpt['optimizer'])
 
         except FileNotFoundError:
-            print("No checkpoint file found. Fresh start.")
+            print("No checkpoint file (%s) found. Fresh start." % self.hparams.md5)
 
 
     def _train_epoch(self) -> None:

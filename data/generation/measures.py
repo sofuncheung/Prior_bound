@@ -33,6 +33,9 @@ from .util.ScdPACBayesBound import AveGibbsAgreement
 # It also assumes that module.children() returns the children of a module
 # in the forward pass order. Recurssive construction is allowed.
 
+# (24 Feb 2023) Note also this wouldn't work with Conv or FC layer without biases.
+# So I decided to turn on biases terms in ResNet.
+
 @torch.no_grad()
 def _reparam(model):
     def in_place_reparam(model, prev_layer=None):
@@ -44,6 +47,12 @@ def _reparam(model):
                 # The strategy here is to reparameterise this prev_layer
                 # to offset the batchnorm layer behind it.
             elif child._get_name() == 'BatchNorm2d':
+                # gamma, beta, running_mean, running_var are all
+                # [n_features] vectors.
+                # print("batchnorm.weight (gamma):", child.weight.shape)
+                # print("batchnorm.bias (beta):", child.bias.shape)
+                # print("running mean:", child.running_mean.shape)
+                # print("running var:", child.running_var.shape)
                 scale = child.weight / ((child.running_var + child.eps).sqrt())
                 prev_layer.bias.copy_(
                     child.bias + (scale * (prev_layer.bias - child.running_mean)))
@@ -57,6 +66,89 @@ def _reparam(model):
         return prev_layer
     model = deepcopy(model)
     in_place_reparam(model)
+    return model
+
+
+@torch.no_grad()
+def _reparam_densenet(model):
+    r"""
+    DenseNet is pain in the ass: the batchnorm layer is sometimes before and
+    sometimes after the conv (or the final FC) layers. So it requires different
+    treatment.
+
+    Actully, after more carefully thinking about it, you just can not reparam conv
+    layer to make up for the batchnorm in Densenet. The batchnorm before conv has a
+    ReLU between them so the transformation is non-linear. The batchnorm after conv
+    layers would be in another _Denselayer so the num_features will be different
+    because of the feature concatenation nature of DenseNets.
+
+    So, this whole function is bullshit. I'm keeping it to embody the
+    inevitable daunting process of developing.
+    """
+    def module_is_minimal_layer(m):
+        """
+        Check if a module is the basic layer or a module that contains more than one
+        layers.
+        """
+        if len(list(m.children())) == 0:
+            return True
+        else:
+            return False
+
+    def module_is_subminimal(m):
+        """
+        Check if a module only contains minimal layers
+        """
+        return (all([module_is_minimal_layer(l) for l in list(m.children())])
+                and not module_is_minimal_layer(m))
+
+    def get_full_name(modules_dict, layer):
+        key_list = list(modules_dict.keys())
+        val_list = list(modules_dict.values())
+        position = val_list.index(layer)
+        return(key_list[position])
+
+    def corr_bn(modules_dict, layer):
+        """
+        Return the batchnorm layer that is corresponding to the given
+        Conv2d or Linear layer in a DenseNet model.
+        """
+        full_name = get_full_name(modules_dict, layer)
+        #if child._get_name() == "Conv2d":
+        #    bn = 
+
+        return(get_full_name(modules_dict, layer))
+
+    def in_place_reparam(all_named_modules, model):
+        """
+        Minimal module refers to a module that only contains minimal layers.
+        Examples are (denselayer5), (trainsition1), etc.
+        """
+        for child in model.children():
+            in_place_reparam(all_named_modules, child)
+            #print(get_full_name(all_named_modules, child))
+            if child._get_name() == "_DenseLayer":
+                for conv_name in ["conv1", "conv2"]:
+                    conv_layer = child.get_submodule(conv_name)
+                    bn_layer = child.get_submodule(conv_name.replace("conv","norm"))
+                    scale = bn_layer.weight / (
+                            (bn_layer.running_var + bn_layer.eps).sqrt())
+                    perm = list(reversed(range(conv_layer.weight.dim())))
+                    conv_layer.bias.copy_(
+                            conv_layer.bias
+                            + conv_layer.weight.permute(perm) * (
+                                bn_layer.bias - scale * bn_layer.running_mean))
+                    conv_layer.weight.copy_(
+                            (conv_layer.weight.permute(perm) * scale).permute(perm))
+            #    print(corr_bn(all_named_modules, child))
+            #print(child._get_name())
+            #if child._get_name() in ["Conv2d", "Linear"]:
+                # Finding corresponding batchnorm layer
+            #    print(corr_bn(all_named_modules, child))
+    model = deepcopy(model)
+    all_named_modules = dict(model.named_modules())
+    in_place_reparam(all_named_modules, model)
+    sys.exit()
     return model
 
 
@@ -183,8 +275,12 @@ def get_all_measures(
 
     measures = {}
 
-    model = _reparam(model)
-    init_model = _reparam(init_model)
+    if model_type in [ModelType.FCN, ModelType.CNN, ModelType.RESNET50,
+            ModelType.NiN, ModelType.FCN_SI]:
+        model = _reparam(model)
+        init_model = _reparam(init_model)
+    elif model_type in [ModelType.DENSENET121]:
+        pass
 
     device = next(model.parameters()).device
     device_string = 'cuda' if next(model.parameters()).is_cuda else 'cpu'
@@ -267,6 +363,8 @@ def get_all_measures(
                     partial_kernel_n_proc=1,
                     partial_kernel_index=0
                     )
+        else:
+            raise NotImplementedError("GP kernel not calculated!")
 
             K = np.array(K.cpu())
             # gpy EP calculation uses np.float64 internally. So it doesn't matter what precision
@@ -379,6 +477,8 @@ def get_all_measures(
                 partial_kernel_index=0
                 )
             K_marg = np.array(K_marg.cpu())
+        else:
+            raise NotImplementedError("GP kernel not calculated!")
 
         if normalize_kernel:
             K_marg = K_marg / K_marg.max()
@@ -490,24 +590,22 @@ def get_all_measures(
     dist_spec_norms = torch.cat(
         [p.svd().S.max().unsqueeze(0) ** 2 for p in dist_reshaped_weights])
 
-    if model_type in [ModelType.FCN, ModelType.CNN, ModelType.FCN_SI]:
-        #print("Approximate Spectral Norm")
-        print("Approximate Spectral Norm for CNN; Exact Spectral Norm for FCN")
-        # Note that these use an approximation from [Yoshida and Miyato, 2017]
-        # https://arxiv.org/abs/1705.10941 (Section 3.2, Convolutions)
-        measures[CT.LOG_PROD_OF_SPEC] = spec_norms.log().sum()  # 32
-        measures[CT.LOG_PROD_OF_SPEC_OVER_MARGIN] = measures[CT.LOG_PROD_OF_SPEC] - \
-            2 * margin.log()  # 31
-        measures[CT.LOG_SPEC_INIT_MAIN] = measures[CT.LOG_PROD_OF_SPEC_OVER_MARGIN] + \
-            (dist_fro_norms / spec_norms).sum().log()  # 29
-        measures[CT.FRO_OVER_SPEC] = (fro_norms / spec_norms).sum()  # 33
-        measures[CT.LOG_SPEC_ORIG_MAIN] = measures[CT.LOG_PROD_OF_SPEC_OVER_MARGIN] + \
-            measures[CT.FRO_OVER_SPEC].log()  # 30
-        measures[CT.LOG_SUM_OF_SPEC_OVER_MARGIN] = math.log(
-            d) + (1/d) * (measures[CT.LOG_PROD_OF_SPEC] - 2 * margin.log())  # 34
-        measures[CT.LOG_SUM_OF_SPEC] = math.log(
-            d) + (1/d) * measures[CT.LOG_PROD_OF_SPEC]  # 35
-    else:
+    print("Approximate Spectral Norm for CNN; Exact Spectral Norm for FCN")
+    # Note that these use an approximation from [Yoshida and Miyato, 2017]
+    # https://arxiv.org/abs/1705.10941 (Section 3.2, Convolutions)
+    measures[CT.LOG_PROD_OF_SPEC] = spec_norms.log().sum()  # 32
+    measures[CT.LOG_PROD_OF_SPEC_OVER_MARGIN] = measures[CT.LOG_PROD_OF_SPEC] - \
+        2 * margin.log()  # 31
+    measures[CT.LOG_SPEC_INIT_MAIN] = measures[CT.LOG_PROD_OF_SPEC_OVER_MARGIN] + \
+        (dist_fro_norms / spec_norms).sum().log()  # 29
+    measures[CT.FRO_OVER_SPEC] = (fro_norms / spec_norms).sum()  # 33
+    measures[CT.LOG_SPEC_ORIG_MAIN] = measures[CT.LOG_PROD_OF_SPEC_OVER_MARGIN] + \
+        measures[CT.FRO_OVER_SPEC].log()  # 30
+    measures[CT.LOG_SUM_OF_SPEC_OVER_MARGIN] = math.log(
+        d) + (1/d) * (measures[CT.LOG_PROD_OF_SPEC] - 2 * margin.log())  # 34
+    measures[CT.LOG_SUM_OF_SPEC] = math.log(
+        d) + (1/d) * measures[CT.LOG_PROD_OF_SPEC]  # 35
+    if model_type in []:
         print("Exact Spectral Norm for CNN Kernel Weights, Fully Connected layer weights not included")
         # Proposed in https://arxiv.org/abs/1805.10408
         # Adapted from https://github.com/brain-research/conv-sv/blob/master/conv2d_singular_values.py#L52

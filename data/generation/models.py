@@ -1,6 +1,9 @@
+from collections import OrderedDict
+import torch
 from torch import Tensor
 import math
 import torch.nn as nn
+import torch.nn.functional as F
 
 from .experiment_config import DatasetType
 
@@ -346,6 +349,146 @@ class CNN(ExperimentBaseModel):
         return self.model(x)
 
 
+# Following are manual constraction of Resnets.
+# To facilitate using _reparam(model) in measure.py, all conv layers
+# have biases.
+
+class BaseBlock(nn.Module):
+    expansion = 1
+
+    def __init__(self, in_planes, planes, stride=1, dim_change=None):
+        super(BaseBlock, self).__init__()
+        # Declare convolutional layers with batch norms
+        self.conv1 = nn.Conv2d(
+            in_planes, planes, kernel_size=3,
+            stride=stride, padding=1, )
+        self.bn1 = nn.BatchNorm2d(planes)
+        self.conv2 = nn.Conv2d(
+            planes, planes, kernel_size=3,
+            stride=1, padding=1, )
+        self.bn2 = nn.BatchNorm2d(planes)
+        self.dim_change = dim_change
+
+        self.shortcut = nn.Sequential()
+        if stride != 1 or in_planes != self.expansion*planes:
+            self.shortcut = nn.Sequential(
+                nn.Conv2d(in_planes, self.expansion*planes,
+                          kernel_size=1, stride=stride, ),
+                nn.BatchNorm2d(self.expansion*planes)
+            )
+
+    def forward(self, x):
+        out = F.relu(self.bn1(self.conv1(x)))
+        out = self.bn2(self.conv2(out))
+        out += self.shortcut(x)
+        out = F.relu(out)
+        return out
+
+
+class Bottleneck(nn.Module):
+    expansion = 4
+
+    def __init__(self, in_planes, planes, stride=1, dim_change=None):
+        super(Bottleneck, self).__init__()
+        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=1, )
+        self.bn1 = nn.BatchNorm2d(planes)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3,
+                               stride=stride, padding=1, )
+        self.bn2 = nn.BatchNorm2d(planes)
+        self.conv3 = nn.Conv2d(planes, self.expansion *
+                               planes, kernel_size=1, )
+        self.bn3 = nn.BatchNorm2d(self.expansion*planes)
+        self.dim_change = dim_change
+
+        self.shortcut = nn.Sequential()
+        if stride != 1 or in_planes != self.expansion*planes:
+            self.shortcut = nn.Sequential(
+                nn.Conv2d(in_planes, self.expansion*planes,
+                          kernel_size=1, stride=stride, ),
+                nn.BatchNorm2d(self.expansion*planes)
+            )
+
+    def forward(self, x):
+        out = F.relu(self.bn1(self.conv1(x)))
+        out = F.relu(self.bn2(self.conv2(out)))
+        out = self.bn3(self.conv3(out))
+        out += self.shortcut(x)
+        out = F.relu(out)
+        return out
+
+
+class ResNet(ExperimentBaseModel):
+    def __init__(self, block, num_blocks, dataset_type):
+        super(ResNet, self).__init__(dataset_type)
+        self.in_planes = 64
+
+        self.conv1 = nn.Conv2d(dataset_type.D[0], 64, kernel_size=3,
+                               stride=1, padding=1, )
+        self.bn1 = nn.BatchNorm2d(64)
+        self.layer1 = self._make_layer(block, 64, num_blocks[0], stride=1)
+        self.layer2 = self._make_layer(block, 128, num_blocks[1], stride=2)
+        self.layer3 = self._make_layer(block, 256, num_blocks[2], stride=2)
+        self.layer4 = self._make_layer(block, 512, num_blocks[3], stride=2)
+        self.linear = nn.Linear(512*block.expansion, dataset_type.K)
+        self.apply(self.he_init)
+
+    def _make_layer(self, block, planes, num_blocks, stride):
+        strides = [stride] + [1]*(num_blocks-1)
+        layers = []
+        for stride in strides:
+            layers.append(block(self.in_planes, planes, stride))
+            self.in_planes = planes * block.expansion
+        return nn.Sequential(*layers)
+
+    @staticmethod
+    def he_init(m):
+        if isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear):
+            nn.init.kaiming_normal_(m.weight,
+                    mode='fan_in', # GP only involves feed-forward process
+                    nonlinearity='relu') # so gain = sqrt(2)
+            if (not (m.bias is None)):
+                nn.init.normal_(m.bias, mean=0.0, std=0.1)
+
+    def forward(self, x):
+        out = F.relu(self.bn1(self.conv1(x)))
+        out = self.layer1(out)
+        out = self.layer2(out)
+        out = self.layer3(out)
+        out = self.layer4(out)
+        out = F.avg_pool2d(out, 4)
+        out = out.view(out.size(0), -1)
+        out = self.linear(out)
+        return out
+
+
+class ResNet_pop_fc(ResNet):
+    r'''
+    Last fc layer poped. For emperical kernal calculation.
+    (or possibly useful for transfer learning as well)
+    '''
+    def __init__(self, block, num_blocks, dataset_type):
+        super().__init__(block, num_blocks, dataset_type)
+
+    def forward(self, x):
+        out = F.relu(self.bn1(self.conv1(x)))
+        out = self.layer1(out)
+        out = self.layer2(out)
+        out = self.layer3(out)
+        out = self.layer4(out)
+        out = F.avg_pool2d(out, 4)
+        out = out.view(out.size(0), -1)
+        return out
+
+
+def ResNet50(dataset_type):
+    return ResNet(Bottleneck, [3, 4, 6, 3], dataset_type)
+
+
+def ResNet_pop_fc_50(dataset_type):
+    return ResNet_pop_fc(Bottleneck, [3, 4, 6, 3], dataset_type)
+
+
+"""
 class CNN_binary(CNN):
     def __init__(self, width_tuple: list,
             intermediate_pooling_type: str,
@@ -359,6 +502,175 @@ class CNN_binary(CNN):
     def forward(self, x):
         x = self.model(x)
         return x[:,1] - x[:,0]
+"""
+
+# Implementation of Densenet
+
+# The pytorch implementation has evolved a lot from the earlier version to accommodate
+# the growing-complexity pytorch ecosystem. But here what we really need is just the
+# basic Densenet structure. So the implementation below will be minimal.
+# Also, as in ResNet, here Conv layers all have biases.
+
+class _Transition(nn.Sequential):
+    def __init__(self, num_input_features, num_output_features):
+        super().__init__()
+        self.add_module('norm', nn.BatchNorm2d(num_input_features))
+        self.add_module('relu', nn.ReLU(inplace=True))
+        self.add_module('conv', nn.Conv2d(num_input_features, num_output_features,
+                                          kernel_size=1, stride=1,))
+        self.add_module('pool', nn.AvgPool2d(kernel_size=2, stride=2))
+
+
+class _DenseLayer(nn.Module):
+    def __init__(self, num_input_features, growth_rate, bn_size, drop_rate):
+        super().__init__()
+        self.add_module('norm1', nn.BatchNorm2d(num_input_features)),
+        self.add_module('relu1', nn.ReLU(inplace=True)),
+        self.add_module('conv1', nn.Conv2d(num_input_features, bn_size *
+                                           growth_rate, kernel_size=1, stride=1,)),
+        self.add_module('norm2', nn.BatchNorm2d(bn_size * growth_rate)),
+        self.add_module('relu2', nn.ReLU(inplace=True)),
+        self.add_module('conv2', nn.Conv2d(bn_size * growth_rate, growth_rate,
+                                           kernel_size=3, stride=1, padding=1,)),
+        self.drop_rate = float(drop_rate)
+
+    def bn_function(self, inputs):
+        "Bottleneck function"
+        # type: (List[Tensor]) -> Tensor
+        concated_features = torch.cat(inputs, 1)
+        bottleneck_output = self.conv1(self.relu1(self.norm1(concated_features)))
+        return bottleneck_output
+
+    def forward(self, input):
+        if isinstance(input, Tensor):
+            prev_features = [input]
+        else:
+            prev_features = input
+
+        bottleneck_output = self.bn_function(prev_features)
+        new_features = self.conv2(self.relu2(self.norm2(bottleneck_output)))
+        if self.drop_rate > 0:
+            new_features = F.dropout(new_features, p=self.drop_rate,
+                                     training=self.training)
+        return new_features
+
+
+class _DenseBlock(nn.ModuleDict):
+
+    def __init__(self, num_layers, num_input_features, bn_size, growth_rate, drop_rate):
+        super().__init__()
+        for i in range(num_layers):
+            layer = _DenseLayer(
+                num_input_features + i * growth_rate,
+                growth_rate=growth_rate,
+                bn_size=bn_size,
+                drop_rate=drop_rate,
+            )
+            self.add_module('denselayer%d' % (i + 1), layer)
+
+    def forward(self, init_features):
+        features = [init_features]
+        for name, layer in self.items():
+            new_features = layer(features)
+            features.append(new_features)
+        return torch.cat(features, 1)
+
+
+class DenseNet(ExperimentBaseModel):
+    def __init__(self, dataset_type, growth_rate=32, block_config=(6, 12, 24, 16),
+                 num_init_features=64, bn_size=4, drop_rate=0):
+
+        super().__init__(dataset_type)
+
+        self.features = nn.Sequential(OrderedDict([
+            ('conv0', nn.Conv2d(dataset_type.D[0],
+                num_init_features, kernel_size=7, stride=2,
+                padding=5)) if dataset_type.D[-1] < 32 else
+            ('conv0', nn.Conv2d(dataset_type.D[0],
+                num_init_features, kernel_size=7, stride=2,
+                padding=3)),
+            ('norm0', nn.BatchNorm2d(num_init_features)),
+            ('relu0', nn.ReLU(inplace=True)),
+            ('pool0', nn.MaxPool2d(kernel_size=3, stride=2, padding=1)),
+        ]))
+
+        # Add multiple denseblocks based on config
+        # for densenet-121 config: [6,12,24,16]
+        num_features = num_init_features
+        for i, num_layers in enumerate(block_config):
+            block = _DenseBlock(
+                num_layers=num_layers,
+                num_input_features=num_features,
+                bn_size=bn_size,
+                growth_rate=growth_rate,
+                drop_rate=drop_rate,
+            )
+            self.features.add_module('denseblock%d' % (i + 1), block)
+            num_features = num_features + num_layers * growth_rate
+            if i != len(block_config) - 1:
+                # add transition layer between denseblocks to
+                # downsample
+                trans = _Transition(num_input_features=num_features,
+                                    num_output_features=num_features // 2)
+                self.features.add_module('transition%d' % (i + 1), trans)
+                num_features = num_features // 2
+
+        # Final batch norm
+        self.features.add_module('norm5', nn.BatchNorm2d(num_features))
+
+        # Linear layer
+        self.classifier = nn.Linear(num_features, dataset_type.K)
+
+        self.apply(self.he_init)
+
+    @staticmethod
+    def he_init(m):
+        if isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear):
+            nn.init.kaiming_normal_(m.weight,
+                    mode='fan_in', # GP only involves feed-forward process
+                    nonlinearity='relu') # so gain = sqrt(2)
+            if (not (m.bias is None)):
+                nn.init.normal_(m.bias, mean=0.0, std=0.1)
+
+    def forward(self, x):
+        features = self.features(x)
+        out = F.relu(features, inplace=True)
+        out = F.adaptive_avg_pool2d(out, (1, 1))
+        out = torch.flatten(out, 1)
+        out = self.classifier(out)
+        return out
+
+class DenseNet_fc_popped(DenseNet):
+
+    def __init__(self, dataset_type, growth_rate=32, block_config=(6, 12, 24, 16),
+                 num_init_features=64, bn_size=4, drop_rate=0):
+        super().__init__(dataset_type, growth_rate=32, block_config=(6, 12, 24, 16),
+                num_init_features=64, bn_size=4, drop_rate=0)
+
+    def forward(self, x):
+        features = self.features(x)
+        out = F.relu(features, inplace=True)
+        out = F.adaptive_avg_pool2d(out, (1, 1))
+        out = torch.flatten(out, 1)
+        return out
+
+
+def DenseNet121(dataset_type):
+    return(DenseNet(dataset_type, 32, (6, 12, 24, 16), 64))
+
+
+def DenseNet121_fc_popped(dataset_type):
+    return(DenseNet_fc_popped(dataset_type, 32, (6, 12, 24, 16), 64))
+
+
+
+
+
+
+
+
+
+
 
 
 
