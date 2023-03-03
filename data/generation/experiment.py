@@ -58,8 +58,8 @@ class Experiment:
         self.model = self._get_model(self.hparams)
         print("Number of parameters", sum(p.numel()
               for p in self.model.parameters() if p.requires_grad))
-        # print("Model architecture:")
-        # print(self.model)
+        #print("Model architecture:")
+        #print(self.model)
 
         self.model.to(device)
         self.init_model = deepcopy(self.model)
@@ -93,6 +93,9 @@ class Experiment:
                 self.model_fc_popped = ResNet_pop_fc_50(self.hparams.dataset_type)
             elif hparams.model_type == ModelType.DENSENET121:
                 self.model_fc_popped = DenseNet121_fc_popped(self.hparams.dataset_type)
+            elif hparams.model_type == ModelType.DENSENET_WO_BIAS_121:
+                self.model_fc_popped = DenseNet_WO_bias_121_fc_popped(
+                        self.hparams.dataset_type)
 
             # print("Model with last layer popped:")
             # print(self.model_fc_popped)
@@ -143,6 +146,8 @@ class Experiment:
             return ResNet50(hparams.dataset_type)
         elif hparams.model_type == ModelType.DENSENET121:
             return DenseNet121(hparams.dataset_type)
+        elif hparams.model_type == ModelType.DENSENET_WO_BIAS_121:
+            return DenseNet_WO_bias_121(hparams.dataset_type)
 
     """
     @staticmethod

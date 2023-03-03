@@ -512,26 +512,26 @@ class CNN_binary(CNN):
 # Also, as in ResNet, here Conv layers all have biases.
 
 class _Transition(nn.Sequential):
-    def __init__(self, num_input_features, num_output_features):
+    def __init__(self, num_input_features, num_output_features, have_bias):
         super().__init__()
         self.add_module('norm', nn.BatchNorm2d(num_input_features))
         self.add_module('relu', nn.ReLU(inplace=True))
         self.add_module('conv', nn.Conv2d(num_input_features, num_output_features,
-                                          kernel_size=1, stride=1,))
+                                          kernel_size=1, stride=1, bias=have_bias))
         self.add_module('pool', nn.AvgPool2d(kernel_size=2, stride=2))
 
 
 class _DenseLayer(nn.Module):
-    def __init__(self, num_input_features, growth_rate, bn_size, drop_rate):
+    def __init__(self, num_input_features, growth_rate, bn_size, drop_rate, have_bias):
         super().__init__()
         self.add_module('norm1', nn.BatchNorm2d(num_input_features)),
         self.add_module('relu1', nn.ReLU(inplace=True)),
         self.add_module('conv1', nn.Conv2d(num_input_features, bn_size *
-                                           growth_rate, kernel_size=1, stride=1,)),
+                                           growth_rate, kernel_size=1, stride=1, bias=have_bias)),
         self.add_module('norm2', nn.BatchNorm2d(bn_size * growth_rate)),
         self.add_module('relu2', nn.ReLU(inplace=True)),
         self.add_module('conv2', nn.Conv2d(bn_size * growth_rate, growth_rate,
-                                           kernel_size=3, stride=1, padding=1,)),
+                                           kernel_size=3, stride=1, padding=1, bias=have_bias)),
         self.drop_rate = float(drop_rate)
 
     def bn_function(self, inputs):
@@ -557,7 +557,7 @@ class _DenseLayer(nn.Module):
 
 class _DenseBlock(nn.ModuleDict):
 
-    def __init__(self, num_layers, num_input_features, bn_size, growth_rate, drop_rate):
+    def __init__(self, num_layers, num_input_features, bn_size, growth_rate, drop_rate, have_bias):
         super().__init__()
         for i in range(num_layers):
             layer = _DenseLayer(
@@ -565,6 +565,7 @@ class _DenseBlock(nn.ModuleDict):
                 growth_rate=growth_rate,
                 bn_size=bn_size,
                 drop_rate=drop_rate,
+                have_bias=have_bias
             )
             self.add_module('denselayer%d' % (i + 1), layer)
 
@@ -578,17 +579,17 @@ class _DenseBlock(nn.ModuleDict):
 
 class DenseNet(ExperimentBaseModel):
     def __init__(self, dataset_type, growth_rate=32, block_config=(6, 12, 24, 16),
-                 num_init_features=64, bn_size=4, drop_rate=0):
+                 num_init_features=64, bn_size=4, drop_rate=0, have_bias=True):
 
         super().__init__(dataset_type)
 
         self.features = nn.Sequential(OrderedDict([
             ('conv0', nn.Conv2d(dataset_type.D[0],
                 num_init_features, kernel_size=7, stride=2,
-                padding=5)) if dataset_type.D[-1] < 32 else
+                padding=5, bias=have_bias)) if dataset_type.D[-1] < 32 else
             ('conv0', nn.Conv2d(dataset_type.D[0],
                 num_init_features, kernel_size=7, stride=2,
-                padding=3)),
+                padding=3, bias=have_bias)),
             ('norm0', nn.BatchNorm2d(num_init_features)),
             ('relu0', nn.ReLU(inplace=True)),
             ('pool0', nn.MaxPool2d(kernel_size=3, stride=2, padding=1)),
@@ -604,6 +605,7 @@ class DenseNet(ExperimentBaseModel):
                 bn_size=bn_size,
                 growth_rate=growth_rate,
                 drop_rate=drop_rate,
+                have_bias=have_bias
             )
             self.features.add_module('denseblock%d' % (i + 1), block)
             num_features = num_features + num_layers * growth_rate
@@ -611,7 +613,7 @@ class DenseNet(ExperimentBaseModel):
                 # add transition layer between denseblocks to
                 # downsample
                 trans = _Transition(num_input_features=num_features,
-                                    num_output_features=num_features // 2)
+                                    num_output_features=num_features // 2, have_bias=have_bias)
                 self.features.add_module('transition%d' % (i + 1), trans)
                 num_features = num_features // 2
 
@@ -643,9 +645,9 @@ class DenseNet(ExperimentBaseModel):
 class DenseNet_fc_popped(DenseNet):
 
     def __init__(self, dataset_type, growth_rate=32, block_config=(6, 12, 24, 16),
-                 num_init_features=64, bn_size=4, drop_rate=0):
-        super().__init__(dataset_type, growth_rate=32, block_config=(6, 12, 24, 16),
-                num_init_features=64, bn_size=4, drop_rate=0)
+                 num_init_features=64, bn_size=4, drop_rate=0, have_bias=True):
+        super().__init__(dataset_type, growth_rate=growth_rate, block_config=block_config,
+                num_init_features=num_init_features, bn_size=bn_size, drop_rate=drop_rate, have_bias=have_bias)
 
     def forward(self, x):
         features = self.features(x)
@@ -658,10 +660,14 @@ class DenseNet_fc_popped(DenseNet):
 def DenseNet121(dataset_type):
     return(DenseNet(dataset_type, 32, (6, 12, 24, 16), 64))
 
-
 def DenseNet121_fc_popped(dataset_type):
     return(DenseNet_fc_popped(dataset_type, 32, (6, 12, 24, 16), 64))
 
+def DenseNet_WO_bias_121(dataset_type):
+    return(DenseNet(dataset_type, 32, (6, 12, 24, 16), 64, have_bias=False))
+
+def DenseNet_WO_bias_121_fc_popped(dataset_type):
+    return(DenseNet_fc_popped(dataset_type, 32, (6, 12, 24, 16), 64, have_bias=False))
 
 
 

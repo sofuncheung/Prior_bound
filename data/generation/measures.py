@@ -358,6 +358,7 @@ def get_all_measures(
                     device_string, seed,
                     n_gpus=1,
                     empirical_kernel_batch_size=500,
+                    normalize_kernel=normalize_kernel,
                     truncated_init_dist=False,
                     store_partial_kernel=False,
                     partial_kernel_n_proc=1,
@@ -369,8 +370,6 @@ def get_all_measures(
             K = np.array(K.cpu())
             # gpy EP calculation uses np.float64 internally. So it doesn't matter what precision
             # you use here.
-        if normalize_kernel:
-            K = K / K.max()
         if loss == LossType.CE:
             if PU_EP == True: # Use EP approximation to calculate PU
                 logPU = GP_prob(K, np.array(xs), np.array(ys))
@@ -457,7 +456,6 @@ def get_all_measures(
 
         if model_type in [ModelType.FCN, ModelType.FCN_SI] and use_empirical_K == False:
             K_marg = kernel_matrix(xs_train, model.number_layers, np.sqrt(2), 0.1)
-
             '''
             K_cross = kernel_matrix_cross(xs_train, xs_test, model.number_layers, np.sqrt(2), 0)
             k_diag_test = k_diag_vector(xs_test, model.number_layers, np.sqrt(2), 0)
@@ -471,6 +469,7 @@ def get_all_measures(
                 device_string, seed,
                 n_gpus=1,
                 empirical_kernel_batch_size=500,
+                normalize_kernel=normalize_kernel,
                 truncated_init_dist=False,
                 store_partial_kernel=False,
                 partial_kernel_n_proc=1,
@@ -479,9 +478,6 @@ def get_all_measures(
             K_marg = np.array(K_marg.cpu())
         else:
             raise NotImplementedError("GP kernel not calculated!")
-
-        if normalize_kernel:
-            K_marg = K_marg / K_marg.max()
 
         if loss == LossType.CE:
             if PU_EP == True: # Use EP approximation to calculate PU

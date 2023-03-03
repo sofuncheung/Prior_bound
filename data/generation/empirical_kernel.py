@@ -11,6 +11,7 @@ def empirical_K(model, data, number_samples,
         device, seed,
         n_gpus=1,
         empirical_kernel_batch_size=5000,
+        normalize_kernel=False,
         truncated_init_dist=False,
         store_partial_kernel=False, # True will not average the kernel at the end.
         partial_kernel_n_proc=1,
@@ -56,7 +57,7 @@ def empirical_K(model, data, number_samples,
         covs = torch.zeros([m, m], dtype=torch.float32).to(device)
     else:
         covs = np.zeros((m,m), dtype=np.float32)
-    local_index = 0 # index of task in a particular precess
+    local_index = 0 # index of task in a particular process
     update_chunk = 10000 # Guillermo use 10000
     num_chunks = covs.shape[0]//update_chunk
     print("num_chunks: ", num_chunks)
@@ -87,15 +88,17 @@ def empirical_K(model, data, number_samples,
                 for i in range(num_chunks):
                     covs[i*update_chunk:(i+1)*update_chunk] += (
                             (sigmaw**2/X.shape[1]) * torch.matmul(
-                                X[i*update_chunk:(i+1) * update_chunk], X.T) +
-                            (sigmab**2) * torch.ones(update_chunk, X.shape[0])
+                                X[i*update_chunk:(i+1)*update_chunk], X.T) +
+                            (sigmab**2) * torch.ones(update_chunk, X.shape[0],
+                                device=device)
                             )
                 last_bits = slice(update_chunk*num_chunks,covs.shape[0])
                 covs[last_bits] += (
                         (sigmaw**2/X.shape[1]) *
                         torch.matmul(X[last_bits], X.T) +
                         (sigmab**2) *
-                        torch.ones(last_bits.stop-last_bits.start, X.shape[0])
+                        torch.ones(last_bits.stop-last_bits.start, X.shape[0],
+                            device=device)
                         )
             else:
                 covs += (sigmaw**2 / X.shape[1]) * torch.matmul(X,X.T) + sigmab**2
@@ -145,7 +148,9 @@ def empirical_K(model, data, number_samples,
                 covs_recv = torch.cat([covs1_recv,covs2_recv],0)
             else:
                 covs_recv = np.concatenate([covs1_recv,covs2_recv],0)
-            return covs_recv/number_samples
+            #return ensure_psd(covs_recv/number_samples, device)
+            return(covs_recv/covs_recv.max()
+                    if normalize_kernel else covs_recv/number_samples)
         else:
             return None
     else:
@@ -153,9 +158,24 @@ def empirical_K(model, data, number_samples,
         #    #make matrix symmetric
         #    covs = np.maximum(covs,covs.trasnpose())
         if store_partial_kernel:
+            #return ensure_psd(covs, device)
             return covs
         else:
-            return covs/number_samples
+            #return ensure_psd(covs/number_samples, device)
+            #print("min_eig", torch.linalg.eigvalsh(covs/covs.max())[0])
+            return(covs/covs.max() if normalize_kernel else covs/number_samples)
+
+def ensure_psd(K, device):
+    if device == "cuda":
+        min_eig = torch.linalg.eigvalsh(K)[0]
+        print("min_eig", min_eig)
+        if min_eig < 0:
+            K -= 1.1*min_eig*torch.eye(*K.shape, device=device)
+    else:
+        min_eig = np.min(np.linalg.eigvalsh(K)).astype(np.float32)
+        if min_eig < 0:
+            K -= 1.1*min_eig * np.eye(*K.shape)
+    return K
 
 
 def weight_reset(m): # using Kaiming normal initialization
@@ -174,7 +194,6 @@ def weight_reset(m): # using Kaiming normal initialization
     # running_mean, running_var, weight, bias
     # are all the same. So no need to reset the parameters for
     # BatchNorm layers.
-
 
 
 def model_predict(model, data, batch_size, device):

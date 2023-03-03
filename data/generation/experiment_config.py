@@ -34,6 +34,7 @@ class ModelType(Enum):
     FCN_SI = 3
     RESNET50 = 4
     DENSENET121 = 5
+    DENSENET_WO_BIAS_121 = 6
 
 class ComplexityType(Enum):
     # GP based Measures
