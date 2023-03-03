@@ -464,7 +464,7 @@ def get_all_measures(
             '''
         elif use_empirical_K == True:
             K_marg = empirical_K(model_fc_popped, trainNtest_loaders[0].dataset,
-                #2,
+                #10,
                 0.1*m,
                 np.sqrt(2),
                 0.1,
