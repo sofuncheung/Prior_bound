@@ -9,7 +9,7 @@ from custom_kernel_matrix.custom_kernel_matrix import CustomMatrix
 
 
 #def GP_prob(K,X,Y,parallel_updates=True,method="EP", using_exactPB=False):
-def GP_prob(K,X,Y,parallel_updates=True,method="EP", using_exactPB=False):
+def GP_prob(K,X,Y,parallel_updates=True,method="EP", delta=1.0, using_exactPB=False):
     #lik = GPy.likelihoods.Bernoulli()
     #m = GPy.models.GPClassification(X=X,
     #                Y=Y,
@@ -30,10 +30,8 @@ def GP_prob(K,X,Y,parallel_updates=True,method="EP", using_exactPB=False):
         inference_method = GPy.inference.latent_function_inference.laplace.Laplace()
     elif method == "EP":
         print("USING EP")
-        inference_method = GPy.inference.latent_function_inference.expectation_propagation.EP(parallel_updates=parallel_updates, epsilon=1.0e-6, delta=1.0)
-        # inference_method = GPy.inference.latent_function_inference.expectation_propagation.EP(
-        #        parallel_updates=parallel_updates,
-        #        epsilon=1.0e-6, delta=0.001) # Slower. Didn't see significant change on mar_lik.
+        inference_method = GPy.inference.latent_function_inference.expectation_propagation.EP(parallel_updates=parallel_updates, epsilon=1.0e-6, delta=delta)
+        #inference_method = GPy.inference.latent_function_inference.expectation_propagation.EP(parallel_updates=parallel_updates, epsilon=1.0e-6, delta=0.001) # Slower. Didn't see significant change on mar_lik.
         #inference_method = GPy.inference.latent_function_inference.laplace.Laplace()
         #inference_method = GPy.inference.latent_function_inference.expectation_propagation.EP(parallel_updates=parallel_updates)
         # inference_method = GPy.inference.latent_function_inference.expectation_propagation.EP()

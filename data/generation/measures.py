@@ -279,12 +279,11 @@ def get_all_measures(
             ModelType.NiN, ModelType.FCN_SI]:
         model = _reparam(model)
         init_model = _reparam(init_model)
-    elif model_type in [ModelType.DENSENET121]:
-        pass
+    elif model_type in [ModelType.DENSENET121, ModelType.DENSENET_WO_BIAS_121]:
+        model = deepcopy(model)
+        init_model = deepcopy(init_model)
 
     device = next(model.parameters()).device
-    device_string = 'cuda' if next(model.parameters()).is_cuda else 'cpu'
-
     m = len(trainNtest_loaders[0].dataset)
 
     def _get_xs_ys_from_dataset(dataset):
@@ -355,9 +354,9 @@ def get_all_measures(
                     0.1*len(data_train_plus_test),
                     np.sqrt(2),
                     0.1,
-                    device_string, seed,
+                    device, seed,
                     n_gpus=1,
-                    empirical_kernel_batch_size=500,
+                    empirical_kernel_batch_size=512,
                     normalize_kernel=normalize_kernel,
                     truncated_init_dist=False,
                     store_partial_kernel=False,
@@ -372,7 +371,7 @@ def get_all_measures(
             # you use here.
         if loss == LossType.CE:
             if PU_EP == True: # Use EP approximation to calculate PU
-                logPU = GP_prob(K, np.array(xs), np.array(ys))
+                logPU = GP_prob(K, np.array(xs), np.array(ys), delta=hparams.delta)
                 measures[CT.PRIOR] = torch.tensor((-logPU-np.log(2**-10))/m, device=device, dtype=torch.float32)
             if PU_MC == True: # Use MC method in Jeremy v1 to approximate PU
                 ys = 2 * ys - 1 # here ys need to be 1 and -1.
@@ -414,7 +413,8 @@ def get_all_measures(
 
             if loss == LossType.CE:
                 if PU_EP == True: # Use EP approximation to calculate PU
-                    logPS = GP_prob(K_marg, np.array(xs_train), np.array(ys_train))
+                    logPS = GP_prob(K_marg, np.array(xs_train), np.array(ys_train,
+                        delta=hparams.delta))
                     mar_lik_bound = (-logPS + 2*np.log(m) + 1 - np.log(2**-10)) / m
                     # "Some PAC-Bayesian Theorems" by McAllester 1999, Theorem 1.
                     mar_lik_bound = 1-np.exp(-mar_lik_bound)
@@ -462,13 +462,13 @@ def get_all_measures(
             '''
         elif use_empirical_K == True:
             K_marg = empirical_K(model_fc_popped, trainNtest_loaders[0].dataset,
-                #10,
+                #100,
                 0.1*m,
                 np.sqrt(2),
                 0.1,
-                device_string, seed,
+                device, seed,
                 n_gpus=1,
-                empirical_kernel_batch_size=500,
+                empirical_kernel_batch_size=512,
                 normalize_kernel=normalize_kernel,
                 truncated_init_dist=False,
                 store_partial_kernel=False,
@@ -481,11 +481,12 @@ def get_all_measures(
 
         if loss == LossType.CE:
             if PU_EP == True: # Use EP approximation to calculate PU
-                logPS = GP_prob(K_marg, np.array(xs_train), np.array(ys_train))
-                # 
-                #np.save('xs.npy',np.array(xs_train))
-                #np.save('ys.npy',np.array(ys_train))
-                #sys.exit()
+
+                #min_eig = np.min(np.linalg.eigvalsh(K_marg))
+                #print("min_eig of empirical K:", min_eig)
+
+                logPS = GP_prob(K_marg, np.array(xs_train), np.array(ys_train),
+                        delta=hparams.delta)
                 mar_lik_bound = (-logPS + 2*np.log(m) + 1 - np.log(2**-10)) / m
                 mar_lik_bound = 1-np.exp(-mar_lik_bound)
 

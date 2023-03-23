@@ -53,7 +53,7 @@ def empirical_K(model, data, number_samples,
     print("Doing process %d of %d" % (rank, size))
 
     m = len(data)
-    if device == 'cuda':
+    if torch.cuda.is_available():
         covs = torch.zeros([m, m], dtype=torch.float32).to(device)
     else:
         covs = np.zeros((m,m), dtype=np.float32)
@@ -67,8 +67,8 @@ def empirical_K(model, data, number_samples,
         if index % 100 == 0:
             print("sample for kernel", index)
 
-        if local_index > 0:
-            model.apply(weight_reset)
+        #if local_index > 0:
+        model.apply(weight_reset)
         # Guillermo chose to use Keras model, while I do everything in Pytorch.
         # The principle is in every MC sample the weights and biases are chosen from 
         # He-normal distribution (In lots of GP papers they use forward-version of Xavier
@@ -81,7 +81,7 @@ def empirical_K(model, data, number_samples,
 
         X = model_predict(model, data,
                 min(empirical_kernel_batch_size, len(data)), device)
-        if device == 'cuda':
+        if torch.cuda.is_available():
             if len(X.shape) == 1:
                 X.unsqueeze_(1)
             if covs.shape[0] > update_chunk:
@@ -100,6 +100,7 @@ def empirical_K(model, data, number_samples,
                         torch.ones(last_bits.stop-last_bits.start, X.shape[0],
                             device=device)
                         )
+                # print(covs[0][0])
             else:
                 covs += (sigmaw**2 / X.shape[1]) * torch.matmul(X,X.T) + sigmab**2
         else: # On cpu and use numpy
@@ -133,7 +134,7 @@ def empirical_K(model, data, number_samples,
         covs1_recv = None
         covs2_recv = None
         if rank == 0: # Do following in the first (main) process
-            if device == 'cuda':
+            if torch.cuda.is_available():
                 covs1_recv = torch.zeros_like(covs[:25000,:], dtype=torch.float32)
                 covs2_recv = torch.zeros_like(covs[25000:,:], dtype=torch.float32)
             else:
@@ -144,13 +145,13 @@ def empirical_K(model, data, number_samples,
         comm.Reduce(covs[25000:,:], covs2_recv, op=MPI.SUM, root=0)
 
         if rank == 0:
-            if device == 'cuda':
+            if torch.cuda.is_available():
                 covs_recv = torch.cat([covs1_recv,covs2_recv],0)
             else:
                 covs_recv = np.concatenate([covs1_recv,covs2_recv],0)
             #return ensure_psd(covs_recv/number_samples, device)
-            return(covs_recv/covs_recv.max()
-                    if normalize_kernel else covs_recv/number_samples)
+            return(covs_recv.div_(covs_recv.max())
+                    if normalize_kernel else covs_recv.div_(number_samples))
         else:
             return None
     else:
@@ -162,11 +163,17 @@ def empirical_K(model, data, number_samples,
             return covs
         else:
             #return ensure_psd(covs/number_samples, device)
-            #print("min_eig", torch.linalg.eigvalsh(covs/covs.max())[0])
-            return(covs/covs.max() if normalize_kernel else covs/number_samples)
+            """
+            try:
+                print("min_eig", torch.linalg.eigvalsh(covs.div_(covs.max()))[0])
+            except:
+                print("torch.linalg.eigvalsh failed most likely due to limited CUDA memory")
+            """
+            return(covs.div_(covs.max()) if normalize_kernel else covs.div_(number_samples))
 
 def ensure_psd(K, device):
-    if device == "cuda":
+    #if device == "cuda":
+    if torch.cuda.is_available():
         min_eig = torch.linalg.eigvalsh(K)[0]
         print("min_eig", min_eig)
         if min_eig < 0:

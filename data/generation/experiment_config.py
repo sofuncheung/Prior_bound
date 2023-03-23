@@ -186,6 +186,7 @@ class HParams:
     PU_EP: bool = True
     PU_MC_sample: int = 100000
     use_empirical_K:bool = False
+    delta:float = 1.0 # the damping factor ("learning rate") of EP site-parameter update
 
     optimize_PAC_Bayes_bound: bool = False
 
