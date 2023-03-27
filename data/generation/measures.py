@@ -272,6 +272,10 @@ def get_all_measures(
     PU_MC_sample = hparams.PU_MC_sample
     loss = hparams.loss
     use_empirical_K = hparams.use_empirical_K
+    if hparams.delta == None:
+        EP_delta = 1.0
+    else:
+        EP_delta = hparams.delta
 
     measures = {}
 
@@ -371,7 +375,7 @@ def get_all_measures(
             # you use here.
         if loss == LossType.CE:
             if PU_EP == True: # Use EP approximation to calculate PU
-                logPU = GP_prob(K, np.array(xs), np.array(ys), delta=hparams.delta)
+                logPU = GP_prob(K, np.array(xs), np.array(ys), delta=EP_delta)
                 measures[CT.PRIOR] = torch.tensor((-logPU-np.log(2**-10))/m, device=device, dtype=torch.float32)
             if PU_MC == True: # Use MC method in Jeremy v1 to approximate PU
                 ys = 2 * ys - 1 # here ys need to be 1 and -1.
@@ -414,7 +418,7 @@ def get_all_measures(
             if loss == LossType.CE:
                 if PU_EP == True: # Use EP approximation to calculate PU
                     logPS = GP_prob(K_marg, np.array(xs_train), np.array(ys_train,
-                        delta=hparams.delta))
+                        delta=EP_delta))
                     mar_lik_bound = (-logPS + 2*np.log(m) + 1 - np.log(2**-10)) / m
                     # "Some PAC-Bayesian Theorems" by McAllester 1999, Theorem 1.
                     mar_lik_bound = 1-np.exp(-mar_lik_bound)
@@ -486,7 +490,7 @@ def get_all_measures(
                 #print("min_eig of empirical K:", min_eig)
 
                 logPS = GP_prob(K_marg, np.array(xs_train), np.array(ys_train),
-                        delta=hparams.delta)
+                        delta=EP_delta)
                 mar_lik_bound = (-logPS + 2*np.log(m) + 1 - np.log(2**-10)) / m
                 mar_lik_bound = 1-np.exp(-mar_lik_bound)
 

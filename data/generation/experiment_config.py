@@ -186,7 +186,9 @@ class HParams:
     PU_EP: bool = True
     PU_MC_sample: int = 100000
     use_empirical_K:bool = False
-    delta:float = 1.0 # the damping factor ("learning rate") of EP site-parameter update
+    delta: Optional[float] = None # the damping factor 
+                                  # ("learning rate") of EP site-parameter update.
+                                  # if None then 1.0
 
     optimize_PAC_Bayes_bound: bool = False
 
@@ -206,6 +208,7 @@ class HParams:
         dictionary['seed'] = 0
         dictionary['data_seed'] = 0
         dictionary['use_cuda'] = False
+        dictionary['delta'] = 1.0
         # This puts experiments under different initializations into the same wandb group
         return hashlib.md5(str(dictionary).encode('utf-8')).hexdigest()
 
