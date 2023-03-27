@@ -208,7 +208,7 @@ class HParams:
         dictionary['seed'] = 0
         dictionary['data_seed'] = 0
         dictionary['use_cuda'] = False
-        dictionary['delta'] = 1.0
+        dictionary['delta'] = None
         # This puts experiments under different initializations into the same wandb group
         return hashlib.md5(str(dictionary).encode('utf-8')).hexdigest()
 
