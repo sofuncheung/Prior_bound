@@ -465,6 +465,7 @@ def get_all_measures(
             k_diag_test = k_diag_vector(xs_test, model.number_layers, np.sqrt(2), 0)
             '''
         elif use_empirical_K == True:
+            #'''
             K_marg = empirical_K(model_fc_popped, trainNtest_loaders[0].dataset,
                 #100,
                 0.1*m,
@@ -480,6 +481,10 @@ def get_all_measures(
                 partial_kernel_index=0
                 )
             K_marg = np.array(K_marg.cpu())
+            #'''
+            #K_marg = np.load("K_27410_fashionmnist.npy")
+            #K_marg = np.load("K_15026_fashionmnist_DENSENET.npy")
+            #np.save("K_15026_fashionmnist_DENSENET.npy", K_marg)
         else:
             raise NotImplementedError("GP kernel not calculated!")
 
