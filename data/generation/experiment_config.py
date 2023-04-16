@@ -185,7 +185,7 @@ class HParams:
     PU_MC: bool = False # Use MC method to calculate PU, as proposed in Jeremy v1
     PU_EP: bool = True
     PU_MC_sample: int = 100000
-    use_empirical_K:bool = False
+    use_empirical_K: bool = False
     delta: Optional[float] = None # the damping factor 
                                   # ("learning rate") of EP site-parameter update.
                                   # if None then 1.0
