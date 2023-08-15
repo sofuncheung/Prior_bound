@@ -40,6 +40,12 @@ class Experiment:
         self.hparams = hparams
         self.config = config
 
+        # Log the epoch where the acc or ce criterion is reached.
+        self.epoch_reach_acc_1 = 0
+        self.epoch_reach_ce_0_01 = 0
+        self.acc_1_reached = False
+        self.ce_0_01_reached = False
+
         # Random Seeds
         random.seed(self.hparams.seed)
         np.random.seed(self.hparams.seed)
@@ -266,8 +272,14 @@ class Experiment:
                 else:
                     if self.hparams.loss == LossType.CE:
                         # Cross-entropy stopping check
-                        dataset_ce = self.evaluate_cross_entropy(
-                            DatasetSubsetType.TRAIN, log=is_last_batch)[0]
+                        dataset_ce, train_acc = self.evaluate_cross_entropy(
+                                DatasetSubsetType.TRAIN, log=is_last_batch)[:2]
+                        if train_acc == 1. and self.acc_1_reached == False:
+                            self.epoch_reach_acc_1 = self.state.epoch
+                            self.acc_1_reached = True
+                        if dataset_ce < 0.01 and self.ce_0_01_reached == False:
+                            self.epoch_reach_ce_0_01 = self.state.epoch
+                            self.ce_0_01_reached = True
                         if dataset_ce < self.hparams.ce_target:
                             self.state.converged = True
                         else:
@@ -343,7 +355,8 @@ class Experiment:
             all_complexities = get_all_measures(
                 self.model, self.init_model, self.model_fc_popped,
                 trainNtest_loaders, acc,
-                self.hparams
+                self.hparams,
+                self.epoch_reach_acc_1, self.epoch_reach_ce_0_01
                 )
 
         if self.hparams.loss == LossType.CE:

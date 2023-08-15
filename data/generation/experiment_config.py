@@ -90,7 +90,9 @@ class ComplexityType(Enum):
     LOG_SUM_OF_SPEC_OVER_MARGIN_FFT = 134
     LOG_SUM_OF_SPEC_FFT = 135
     DIST_SPEC_INIT_FFT = 141
-
+    # Epoch reaching stopping criterion
+    EPOCH_REACH_ACC_1 = 200
+    EPOCH_REACH_CE_0_01 = 201
 
 class OptimizerType(Enum):
     SGD = 1
@@ -156,6 +158,9 @@ class HParams:
     test_dataset_size: Optional[int] = 10000
     label_corruption: Optional[float] = None # between [0, 1], the portion of training set that has random labels
     attack_dataset_size: Optional[int] = None
+
+    shuffle_pixel:bool = False
+
     # Training
     loss: LossType = LossType.CE
     batch_size: int = 256

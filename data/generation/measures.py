@@ -259,7 +259,9 @@ def get_all_measures(
     model_fc_popped: ExperimentBaseModel,
     trainNtest_loaders: Tuple[DataLoader, DataLoader],
     acc: float,
-    hparams: HParams
+    hparams: HParams,
+    epoch_reach_acc_1: int,
+    epoch_reach_ce_0_01: int
 ) -> Dict[CT, float]:
     seed = hparams.seed
     model_type = hparams.model_type
@@ -278,6 +280,9 @@ def get_all_measures(
         EP_delta = hparams.delta
 
     measures = {}
+
+    measures[CT.EPOCH_REACH_ACC_1] = torch.tensor(epoch_reach_acc_1)
+    measures[CT.EPOCH_REACH_CE_0_01] = torch.tensor(epoch_reach_ce_0_01)
 
     if model_type in [ModelType.FCN, ModelType.CNN, ModelType.RESNET50,
             ModelType.NiN, ModelType.FCN_SI]:
@@ -589,12 +594,17 @@ def get_all_measures(
     print("(Norm & Margin)-Based Measures")
     fro_norms = torch.cat([p.norm('fro').unsqueeze(0) **
                           2 for p in reshaped_weights])
+    #spec_norms = torch.cat(
+    #    [p.svd().S.max().unsqueeze(0) ** 2 for p in reshaped_weights]) # Largest singular value
     spec_norms = torch.cat(
-        [p.svd().S.max().unsqueeze(0) ** 2 for p in reshaped_weights]) # Largest singular value
+            [torch.linalg.svdvals(p).max().unsqueeze(0) ** 2 for p in reshaped_weights])
+
     dist_fro_norms = torch.cat(
         [p.norm('fro').unsqueeze(0) ** 2 for p in dist_reshaped_weights])
+    #dist_spec_norms = torch.cat(
+    #    [p.svd().S.max().unsqueeze(0) ** 2 for p in dist_reshaped_weights])
     dist_spec_norms = torch.cat(
-        [p.svd().S.max().unsqueeze(0) ** 2 for p in dist_reshaped_weights])
+            [torch.linalg.svdvals(p).max().unsqueeze(0) ** 2 for p in dist_reshaped_weights])
 
     print("Approximate Spectral Norm for CNN; Exact Spectral Norm for FCN")
     # Note that these use an approximation from [Yoshida and Miyato, 2017]
@@ -1033,7 +1043,8 @@ def get_all_measures(
                               'PRIOR_ELBO', 'MAR_LIK_MC', 'MAR_LIK_ELBO',
                               "BPAC_OPT", "B_RE_OPTIMAL", "MEAN_TRAIN_ACC_STOCH",
                               "MEAN_TEST_ACC_STOCH", "TRAIN_ACC_DET",
-                              "TEST_ACC_DET","PATH_NORM_BOUND"]:
+                              "TEST_ACC_DET","PATH_NORM_BOUND",
+                              "EPOCH_REACH_CE_0_01", "EPOCH_REACH_ACC_1"]:
             return value
         else:
             return np.sqrt(value / m)
