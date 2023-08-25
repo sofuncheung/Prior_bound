@@ -35,6 +35,8 @@ class ModelType(Enum):
     RESNET50 = 4
     DENSENET121 = 5
     DENSENET_WO_BIAS_121 = 6
+    DENSENET_WO_BIAS_121_S_INVAR = 7
+    FCN_S_INVAR = 8
 
 class ComplexityType(Enum):
     # GP based Measures
@@ -100,7 +102,6 @@ class OptimizerType(Enum):
     ADAM = 3
     NERO = 4
 
-
 class LossType(Enum):
     CE = 1
     MSE = 2
@@ -121,6 +122,7 @@ class State:
     converged: bool = False
     check_freq: int = 0
     ce_check_milestones: Optional[List[float]] = None
+    mse_check_milestones: Optional[List[float]] = None
     acc_check_milestones: Optional[List[float]] = None
     prior_weights: Optional[list] = None
 
@@ -159,7 +161,23 @@ class HParams:
     label_corruption: Optional[float] = None # between [0, 1], the portion of training set that has random labels
     attack_dataset_size: Optional[int] = None
 
-    shuffle_pixel:bool = False
+    # shuffle pixels
+    shuffle_pixel_all_once_train:bool = False # Shuffle only once and for all data
+    shuffle_pixel_all_once_test:bool = False
+    shuffle_pixel_all_once_mode:str = "intra-channel-tied"
+
+    shuffle_pixel_per_image_train:bool = False
+    shuffle_pixel_per_image_test:bool = False
+    shuffle_pixel_per_image_mode:str = "intra-channel-tied" # 3 options here: "intra-channel-tied",
+        # "intra-channel" and "inter-channel". They correspond to the following situations
+        # respectively: 
+        #   1. shuffling happens within effectively one channel, as the RGB 
+        # channels for a given pixel are "tied" together; This corresponds to the common
+        # sense of "pixel shuffling"
+        #   2. shuffling happens independently in all channels, but components 
+        # from a given channel stay in this channel
+        #   3. shuffling happens in all channels and components are allowed to go to
+        # another channel.
 
     # Training
     loss: LossType = LossType.CE
@@ -167,6 +185,8 @@ class HParams:
     epochs: int = 300
     optimizer_type: OptimizerType = OptimizerType.ADAM
     lr: float = 0.01
+    exp_incre_lr:bool = False
+    lr_gamma:float = 1.02
 
     # Stopping criterion
     stop_by_full_train_acc: bool = True # Stop training when reaching 100% training accuracy
@@ -181,7 +201,13 @@ class HParams:
     ce_target: Optional[float] = 0.01
     ce_target_milestones: Optional[List[float]] = field(
         default_factory=lambda: [0.05, 0.025, 0.015])
-        # these two would be neglected if stop_by_full_train_acc=True
+
+    # MSE stopping criterion
+    mse_target: Optional[float] = 0.01
+    mse_target_milestones: Optional[List[float]] = field(
+        default_factory=lambda: [0.05, 0.025, 0.015])
+
+    # the above two criteriors would be neglected if stop_by_full_train_acc=True
 
     # GP measures related
     compute_prior: bool = False

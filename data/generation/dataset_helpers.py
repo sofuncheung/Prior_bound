@@ -96,7 +96,8 @@ def process_data(hparams: HParams, data_np: np.ndarray, targets_np: np.ndarray, 
         targets = torch.index_select(targets, 0, indices)
 
     # Label corruption (change labels in a portion of the training set to random labels)
-    if hparams.label_corruption is not None:
+    # Note on 15 Aug: fixed bug where it used to corrupt the labels in the test set too.
+    if train and (hparams.label_corruption is not None):
         corruption_size, offset_corruption = (int(hparams.label_corruption*hparams.train_dataset_size), 2)
         rng_label_corruption = np.random.RandomState(
                 hparams.data_seed + offset_corruption) if (hparams.data_seed is not None) else np.random
@@ -110,6 +111,72 @@ def process_data(hparams: HParams, data_np: np.ndarray, targets_np: np.ndarray, 
     # Attack set (add additional attack set in which real labels are flipped)
     if hparams.attack_dataset_size is not None:
         raise NotImplementedError
+
+    # Shuffle pixels per image (which is different from label corruption as a way of
+    # increasing data complexity)
+    if (train and hparams.shuffle_pixel_per_image_train == True) or (
+            (not train) and hparams.shuffle_pixel_per_image_test == True):
+        '''
+        data = torch.tensor([[[[1,2,3],[4,5,6],[7,8,9]],
+            [[11,12,13],[14,15,16],[17,18,19]], [[21,22,23],[24,25,26],[27,28,29]]],
+            [[[101,102,103],[104,105,106],[107,108,109]],
+                [[111,112,113],[114,115,116],[117,118,119]], [[121,122,123],[124,125,126],[127,128,129]]
+            ]])
+        '''
+        offset_shuffle_pixel_per_image = 3 if train else 4
+        rng_shuffle_pixel_per_image = np.random.RandomState(
+                hparams.data_seed + offset_shuffle_pixel_per_image ) if (hparams.data_seed is not None) else np.random
+        ori_shape_per_image = data[0].shape
+        if hparams.shuffle_pixel_per_image_mode == "intra-channel-tied":
+            for row_idx in range(len(data)):
+                idx = np.arange(ori_shape_per_image[-1] * ori_shape_per_image[-2])
+                rng_shuffle_pixel_per_image.shuffle(idx)
+                data[row_idx] = data[row_idx].view(ori_shape_per_image[0],-1).transpose(1,0)[idx].transpose(1,0).view(ori_shape_per_image)
+
+        elif hparams.shuffle_pixel_per_image_mode == "intra-channel":
+            for row_idx in range(len(data)):
+                for channel_idx in range(ori_shape_per_image[0]):
+                    idx = np.arange(ori_shape_per_image[-1] * ori_shape_per_image[-2])
+                    rng_shuffle_pixel_per_image.shuffle(idx)
+                    data[row_idx][channel_idx] = data[row_idx][channel_idx].view(
+                            -1)[idx].view(data[row_idx][channel_idx].shape)
+
+        elif hparams.shuffle_pixel_per_image_mode == "inter-channel":
+            for row_idx in range(len(data)):
+                idx = np.arange(np.prod(ori_shape_per_image))
+                rng_shuffle_pixel_per_image.shuffle(idx)
+                data[row_idx] = data[row_idx].view(-1)[idx].view(data[row_idx].shape)
+
+    # Shuffle pixels but only choose the random permutation once and apply to
+    # all images in both traning set and test set (As in paper "MEASURING THE 
+    # INTRINSIC DIMENSION OF OBJECTIVE LANDSCAPES")
+    if hparams.shuffle_pixel_all_once_train == True:
+        offset_shuffle_pixel_all_once = 5
+        rng_shuffle_pixel_all_once = np.random.RandomState(
+                hparams.data_seed + offset_shuffle_pixel_all_once ) if (
+                        hparams.data_seed is not None) else np.random
+        ori_shape_dataset = data.shape
+        if hparams.shuffle_pixel_all_once_mode == "intra-channel-tied":
+            idx = np.arange(ori_shape_dataset[-1] * ori_shape_dataset[-2])
+            rng_shuffle_pixel_all_once.shuffle(idx)
+            if (train or hparams.shuffle_pixel_all_once_test):
+                data = data.view(ori_shape_dataset[0],ori_shape_dataset[1],-1).transpose(
+                        0,2)[idx].transpose(0,2).view(ori_shape_dataset)
+        elif hparams.shuffle_pixel_all_once_mode == "intra-channel":
+            for channel_idx in range(ori_shape_dataset[1]):
+                idx = np.arange(ori_shape_dataset[-1] * ori_shape_dataset[-2])
+                rng_shuffle_pixel_all_once.shuffle(idx)
+                if (train or hparams.shuffle_pixel_all_once_test):
+                    data[:,channel_idx,:,:] = data[:,channel_idx,:,:].view(
+                            ori_shape_dataset[0],-1).transpose(0,1)[idx].transpose(
+                                    0,1).view(data[:,channel_idx,:,:].shape)
+        elif hparams.shuffle_pixel_all_once_mode == "inter-channel":
+            idx = np.arange(np.prod(ori_shape_dataset[1:]))
+            rng_shuffle_pixel_all_once.shuffle(idx)
+            if (train or hparams.shuffle_pixel_all_once_test):
+                data = data.view(ori_shape_dataset[0],-1).transpose(
+                        0,1)[idx].transpose(0,1).view(ori_shape_dataset)
+
 
     # Put both data and targets on GPU in advance
     return data.to(device), targets.to(device)

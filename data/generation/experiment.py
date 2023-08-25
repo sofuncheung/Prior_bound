@@ -40,11 +40,13 @@ class Experiment:
         self.hparams = hparams
         self.config = config
 
-        # Log the epoch where the acc or ce criterion is reached.
+        # Log the epoch where the acc or ce/mse criterion is reached.
         self.epoch_reach_acc_1 = 0
         self.epoch_reach_ce_0_01 = 0
+        self.epoch_reach_mse_0_01 = 0
         self.acc_1_reached = False
         self.ce_0_01_reached = False
+        self.mse_0_01_reached = False
 
         # Random Seeds
         random.seed(self.hparams.seed)
@@ -66,6 +68,7 @@ class Experiment:
               for p in self.model.parameters() if p.requires_grad))
         #print("Model architecture:")
         #print(self.model)
+        #print(self._is_scale_invariant(self.hparams, self.model))
 
         self.model.to(device)
         self.init_model = deepcopy(self.model)
@@ -99,7 +102,7 @@ class Experiment:
                 self.model_fc_popped = ResNet_pop_fc_50(self.hparams.dataset_type)
             elif hparams.model_type == ModelType.DENSENET121:
                 self.model_fc_popped = DenseNet121_fc_popped(self.hparams.dataset_type)
-            elif hparams.model_type == ModelType.DENSENET_WO_BIAS_121:
+            elif hparams.model_type in [ModelType.DENSENET_WO_BIAS_121, ModelType.DENSENET_WO_BIAS_121_S_INVAR]:
                 self.model_fc_popped = DenseNet_WO_bias_121_fc_popped(
                         self.hparams.dataset_type)
 
@@ -124,6 +127,15 @@ class Experiment:
         else:
             raise KeyError
 
+        # Scheduler
+        if self.hparams.exp_incre_lr == True:
+            self.scheduler = torch.optim.lr_scheduler.ExponentialLR(
+                    #self.optimizer, self.hparams.lr_gamma, verbose=True)
+                    self.optimizer, self.hparams.lr_gamma)
+        else:
+            self.scheduler = None
+
+
         # Check and load if the experiment was run and saved before.
         self.checkNload()
 
@@ -143,6 +155,8 @@ class Experiment:
             return FCN_scale_ignorant(hparams.model_width_tuple,
                     hparams.dataset_type,
                     hparams.SI_w_std)
+        elif hparams.model_type == ModelType.FCN_S_INVAR:
+            return FCN_scale_invariant(hparams.model_width_tuple, hparams.dataset_type)
         elif hparams.model_type == ModelType.CNN:
             return CNN(hparams.model_width_tuple,
                     hparams.intermediate_pooling_type,
@@ -154,6 +168,30 @@ class Experiment:
             return DenseNet121(hparams.dataset_type)
         elif hparams.model_type == ModelType.DENSENET_WO_BIAS_121:
             return DenseNet_WO_bias_121(hparams.dataset_type)
+        elif hparams.model_type == ModelType.DENSENET_WO_BIAS_121_S_INVAR:
+            return DenseNet_WO_bias_121_scale_invariant(hparams.dataset_type)
+
+
+    @staticmethod
+    def _is_scale_invariant(hparams: HParams, model: ExperimentBaseModel, device) -> bool:
+        assert hparams.model_type == ModelType.DENSENET_WO_BIAS_121_S_INVAR, "Only support DENSENET_WO_BIAS_121 to be scale invariant now"
+        model = deepcopy(model)
+        data_foo = torch.rand(100, *model.dataset_type.D).to(device)
+        eps = 1.e-3
+        prev = model(data_foo)
+        #scale_foo = torch.rand(1)
+        def in_place_scale_param(model):
+            for child in model.children():
+                in_place_scale_param(child)
+                #if child._get_name() in ["Conv2d", "Linear"]:
+                if child.parameters() != None:
+                    for p in child.parameters():
+                        if p.requires_grad == True:
+                            p.copy_(p * 10)
+        with torch.no_grad():
+            in_place_scale_param(model)
+        after = model(data_foo)
+        return all(abs(prev-after) < eps)
 
     """
     @staticmethod
@@ -168,15 +206,29 @@ class Experiment:
     def save_state(self, postfix: str = '') -> None:
         checkpoint_file = self.config.checkpoint_dir / \
             (self.hparams.md5 + postfix + '.pt')
-        torch.save({
-            'config': self.hparams,
-            'state': self.state,
-            'model': self.model.state_dict(),
-            'init_model': self.init_model.state_dict(),
-            'optimizer': self.optimizer.state_dict(),
-            'np_rng': np.random.get_state(),
-            'torch_rng': torch.get_rng_state(),
-        }, checkpoint_file)
+        if self.scheduler == None:
+            torch.save({
+                'config': self.hparams,
+                'state': self.state,
+                'model': self.model.state_dict(),
+                'init_model': self.init_model.state_dict(),
+                'optimizer': self.optimizer.state_dict(),
+                'np_rng': np.random.get_state(),
+                'torch_rng': torch.get_rng_state(),
+            }, checkpoint_file)
+        else:
+            torch.save({
+                'config': self.hparams,
+                'state': self.state,
+                'model': self.model.state_dict(),
+                'init_model': self.init_model.state_dict(),
+                'optimizer': self.optimizer.state_dict(),
+                'scheduler': self.scheduler.state_dict(),
+                'np_rng': np.random.get_state(),
+                'torch_rng': torch.get_rng_state(),
+            }, checkpoint_file)
+
+
 
     def checkNload(self,) -> None:
         """
@@ -201,6 +253,8 @@ class Experiment:
             self.init_model.load_state_dict(ckpt['init_model'])
             print("Loading optimizer")
             self.optimizer.load_state_dict(ckpt['optimizer'])
+            print("Loading scheduler")
+            self.scheduler.load_state_dict(ckpt['scheduler'])
 
         except FileNotFoundError:
             print("No checkpoint file (%s) found. Fresh start." % self.hparams.md5)
@@ -208,6 +262,9 @@ class Experiment:
 
     def _train_epoch(self) -> None:
         self.model.train()
+
+        #print(self._is_scale_invariant(self.hparams, self.model, self.device))
+
         check_batches = [(len(self.train_loader)//(2**(self.state.check_freq))) * (i+1)
                             for i in range(2**(self.state.check_freq)-1)]
         check_batches.append(len(self.train_loader)-1) # mandatorily check last batch
@@ -237,6 +294,9 @@ class Experiment:
             self.model.train()
 
             self.optimizer.step()
+
+            if self.scheduler != None:
+                self.scheduler.step()
 
             # Log everything
             self.printer.batch_end(
@@ -270,8 +330,8 @@ class Experiment:
                                 self.save_state(f'_acc_{passed_milestone}')
 
                 else:
+                    # loss function stopping check (CE or MSE)
                     if self.hparams.loss == LossType.CE:
-                        # Cross-entropy stopping check
                         dataset_ce, train_acc = self.evaluate_cross_entropy(
                                 DatasetSubsetType.TRAIN, log=is_last_batch)[:2]
                         if train_acc == 1. and self.acc_1_reached == False:
@@ -292,10 +352,31 @@ class Experiment:
                                 if self.config.save_epoch_freq is not None:
                                     self.save_state(f'_ce_{passed_milestone}')
                     elif self.hparams.loss == LossType.MSE:
-                        raise NotImplementedError
+                        dataset_mse, train_acc = self.evaluate_mse(DatasetSubsetType.TRAIN,
+                                log=is_last_batch)[:2]
+                        if train_acc == 1. and self.acc_1_reached == False:
+                            self.epoch_reach_acc_1 = self.state.epoch
+                            self.acc_1_reached = True
+                        if dataset_mse < 0.01 and self.mse_0_01_reached == False:
+                            self.epoch_reach_mse_0_01 = self.state.epoch
+                            self.mse_0_01_reached = True
+                        if dataset_mse < self.hparams.mse_target:
+                            self.state.converged = True
+                        else:
+                            while len(self.state.mse_check_milestones
+                                    ) > 0 and dataset_mse <= self.state.mse_check_milestones[0]:
+                                passed_milestone = self.state.mse_check_milestones[0]
+                                print(f'passed mse milestone {passed_milestone}')
+                                self.state.mse_check_milestones.pop(0)
+                                self.state.check_freq += 1
+                                # if passed one milestone, double the ce check frequency
+                                if self.config.save_epoch_freq is not None:
+                                    self.save_state(f'_mse_{passed_milestone}')
 
             if self.state.converged:
                 break
+        #if self.scheduler != None:
+        #    self.scheduler.step()
 
     def train(self) -> None:
         self.printer.train_start(self.device)

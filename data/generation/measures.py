@@ -288,7 +288,8 @@ def get_all_measures(
             ModelType.NiN, ModelType.FCN_SI]:
         model = _reparam(model)
         init_model = _reparam(init_model)
-    elif model_type in [ModelType.DENSENET121, ModelType.DENSENET_WO_BIAS_121]:
+    elif model_type in [ModelType.DENSENET121, ModelType.DENSENET_WO_BIAS_121,
+            ModelType.DENSENET_WO_BIAS_121_S_INVAR]:
         model = deepcopy(model)
         init_model = deepcopy(init_model)
 
@@ -517,12 +518,16 @@ def get_all_measures(
                 measures[CT.MAR_LIK_ELBO] = torch.tensor(mar_lik_elbo, device=device, dtype=torch.float32)
         elif loss == LossType.MSE:
             logPS = GP_prob_pf(K_marg, np.array(xs_train), np.array(ys_train))
+            # Note: above line "np.array(ys_train)" works in numpy 1.19.5
+            # but newer numpy would throw an exception. Apparently you can't set
+            # an Numpy list using this nested Python list + torch Tensor anymore.
             mar_lik_bound = (-logPS + 2*np.log(m) + 1 - np.log(2**-10)) / m
             mar_lik_bound = 1-np.exp(-mar_lik_bound)
             measures[CT.MAR_LIK] = torch.tensor(mar_lik_bound, device=device, dtype=torch.float32)
+            '''
             noiseless_posterior = GP_regression_noiseless_posterior(K_marg, K_cross, k_diag_test, np.array(ys_train))
             print(AveGibbsAgreement(noiseless_posterior))
-
+            '''
 
     def get_weights_only(model: ExperimentBaseModel) -> List[Tensor]:
         blacklist = {'bias', 'bn'}
@@ -587,9 +592,10 @@ def get_all_measures(
             margins.append(margin)
         return torch.cat(margins).kthvalue(m // 10)[0]
 
-    margin = _margin(model, trainNtest_loaders[0]).abs()
-    measures[CT.INVERSE_MARGIN] = torch.tensor(
-        1, device=device) / margin ** 2  # 22
+    if loss == LossType.CE:
+        margin = _margin(model, trainNtest_loaders[0]).abs()
+        measures[CT.INVERSE_MARGIN] = torch.tensor(
+            1, device=device) / margin ** 2  # 22
 
     print("(Norm & Margin)-Based Measures")
     fro_norms = torch.cat([p.norm('fro').unsqueeze(0) **
@@ -610,15 +616,16 @@ def get_all_measures(
     # Note that these use an approximation from [Yoshida and Miyato, 2017]
     # https://arxiv.org/abs/1705.10941 (Section 3.2, Convolutions)
     measures[CT.LOG_PROD_OF_SPEC] = spec_norms.log().sum()  # 32
-    measures[CT.LOG_PROD_OF_SPEC_OVER_MARGIN] = measures[CT.LOG_PROD_OF_SPEC] - \
-        2 * margin.log()  # 31
-    measures[CT.LOG_SPEC_INIT_MAIN] = measures[CT.LOG_PROD_OF_SPEC_OVER_MARGIN] + \
-        (dist_fro_norms / spec_norms).sum().log()  # 29
     measures[CT.FRO_OVER_SPEC] = (fro_norms / spec_norms).sum()  # 33
-    measures[CT.LOG_SPEC_ORIG_MAIN] = measures[CT.LOG_PROD_OF_SPEC_OVER_MARGIN] + \
-        measures[CT.FRO_OVER_SPEC].log()  # 30
-    measures[CT.LOG_SUM_OF_SPEC_OVER_MARGIN] = math.log(
-        d) + (1/d) * (measures[CT.LOG_PROD_OF_SPEC] - 2 * margin.log())  # 34
+    if loss == LossType.CE:
+        measures[CT.LOG_PROD_OF_SPEC_OVER_MARGIN] = measures[CT.LOG_PROD_OF_SPEC] - \
+        2 * margin.log()  # 31
+        measures[CT.LOG_SPEC_INIT_MAIN] = measures[CT.LOG_PROD_OF_SPEC_OVER_MARGIN] + \
+            (dist_fro_norms / spec_norms).sum().log()  # 29
+        measures[CT.LOG_SPEC_ORIG_MAIN] = measures[CT.LOG_PROD_OF_SPEC_OVER_MARGIN] + \
+            measures[CT.FRO_OVER_SPEC].log()  # 30
+        measures[CT.LOG_SUM_OF_SPEC_OVER_MARGIN] = math.log(
+            d) + (1/d) * (measures[CT.LOG_PROD_OF_SPEC] - 2 * margin.log())  # 34
     measures[CT.LOG_SUM_OF_SPEC] = math.log(
         d) + (1/d) * measures[CT.LOG_PROD_OF_SPEC]  # 35
     if model_type in []:
@@ -652,11 +659,12 @@ def get_all_measures(
             if len(p.shape)==4])
 
         measures[CT.LOG_PROD_OF_SPEC_FFT] = fft_spec_norms.log().sum()  # 32
-        measures[CT.LOG_PROD_OF_SPEC_OVER_MARGIN_FFT] = measures[CT.LOG_PROD_OF_SPEC_FFT] - \
-            2 * margin.log()  # 31
+        if loss == LossType.CE:
+            measures[CT.LOG_PROD_OF_SPEC_OVER_MARGIN_FFT] = measures[CT.LOG_PROD_OF_SPEC_FFT] - \
+                2 * margin.log()  # 31
+            measures[CT.LOG_SUM_OF_SPEC_OVER_MARGIN_FFT] = math.log(
+                d) + (1/d) * (measures[CT.LOG_PROD_OF_SPEC_FFT] - 2 * margin.log())  # 34
         measures[CT.FRO_OVER_SPEC_FFT] = (fro_norms / fft_spec_norms).sum()  # 33
-        measures[CT.LOG_SUM_OF_SPEC_OVER_MARGIN_FFT] = math.log(
-            d) + (1/d) * (measures[CT.LOG_PROD_OF_SPEC_FFT] - 2 * margin.log())  # 34
         measures[CT.LOG_SUM_OF_SPEC_FFT] = math.log(
             d) + (1/d) * measures[CT.LOG_PROD_OF_SPEC_FFT]  # 35
         measures[CT.DIST_SPEC_INIT_FFT] = fft_dist_spec_norms.sum()  # 41
@@ -667,10 +675,11 @@ def get_all_measures(
 
     print("Frobenius Norm")
     measures[CT.LOG_PROD_OF_FRO] = fro_norms.log().sum()  # 37
-    measures[CT.LOG_PROD_OF_FRO_OVER_MARGIN] = measures[CT.LOG_PROD_OF_FRO] - \
-        2 * margin.log()  # 36
-    measures[CT.LOG_SUM_OF_FRO_OVER_MARGIN] = math.log(
-        d) + (1/d) * (measures[CT.LOG_PROD_OF_FRO] - 2 * margin.log())  # 38
+    if loss == LossType.CE:
+        measures[CT.LOG_PROD_OF_FRO_OVER_MARGIN] = measures[CT.LOG_PROD_OF_FRO] - \
+            2 * margin.log()  # 36
+        measures[CT.LOG_SUM_OF_FRO_OVER_MARGIN] = math.log(
+            d) + (1/d) * (measures[CT.LOG_PROD_OF_FRO] - 2 * margin.log())  # 38
     measures[CT.LOG_SUM_OF_FRO] = math.log(
         d) + (1/d) * measures[CT.LOG_PROD_OF_FRO]  # 39
 
@@ -685,9 +694,14 @@ def get_all_measures(
     def _path_norm(model: ExperimentBaseModel) -> Tensor:
         model = deepcopy(model)
         model.eval()
-        for param in model.parameters():
-            if param.requires_grad:
-                param.data.pow_(2)
+        if hparams.model_type in ["DENSENET_WO_BIAS_121_S_INVAR","FCN_S_INVAR"]:
+            for param in model.parameters():
+                    param.data.pow_(2)
+        else:
+            for param in model.parameters():
+                if param.requires_grad:
+                    param.data.pow_(2)
+
         x = torch.ones([1] + list(model.dataset_type.D), device=device)
         x = model(x)
         del model
@@ -728,14 +742,15 @@ def get_all_measures(
         return bound
 
     measures[CT.PATH_NORM] = _path_norm(model)  # 44
-    measures[CT.PATH_NORM_OVER_MARGIN] = measures[CT.PATH_NORM] / \
-        margin ** 2  # 43
 
-    if hparams.center_data == True:
-        raise NotImplementedError("Now the max of maximum norm of data samples is not 1!")
-    elif model_type == ModelType.FCN:
-        L_grid = np.arange(0.1, 1, 0.01)
-        measures[CT.PATH_NORM_BOUND] = _path_norm_bound(measures[CT.PATH_NORM], model, L_grid)
+    if loss == LossType.CE:
+        measures[CT.PATH_NORM_OVER_MARGIN] = measures[CT.PATH_NORM] / \
+            margin ** 2  # 43
+        if hparams.center_data == True:
+            raise NotImplementedError("Now the max of maximum norm of data samples is not 1!")
+        elif model_type == ModelType.FCN:
+            L_grid = np.arange(0.1, 1, 0.01)
+            measures[CT.PATH_NORM_BOUND] = _path_norm_bound(measures[CT.PATH_NORM], model, L_grid)
 
 
     print("Flatness-based measures")

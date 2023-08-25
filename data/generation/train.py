@@ -22,6 +22,7 @@ if __name__ == '__main__':
     config.setup_dirs()
     state: State = args.state
     state.ce_check_milestones = hparams.ce_target_milestones.copy()
+    state.mse_check_milestones = hparams.ce_target_milestones.copy()
     state.acc_check_milestones = hparams.acc_target_milestones.copy()
 
 

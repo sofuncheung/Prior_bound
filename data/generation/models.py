@@ -164,6 +164,55 @@ class FCN(ExperimentBaseModel):
         return self.model(x)
 
 
+class FCN_scale_invariant(ExperimentBaseModel):
+    # scale invariant FCN due to batch normalization.
+    # see paper: AN EXPONENTIAL LEARNING RATE SCHEDULE FOR DEEP LEARNING
+    def __init__(self, width_tuple: list, dataset_type: DatasetType) -> None:
+        super().__init__(dataset_type)
+
+        self.input_dim = calculate_production(self.dataset_type.D)
+        self.width_tuple = width_tuple
+        self.number_layers = len(width_tuple) # number of hidden layers
+        self.model = nn.Sequential(OrderedDict([
+            ('flatten', nn.Flatten()),
+            ('linear0', nn.Linear(self.input_dim, width_tuple[0])),
+            ('norm0', nn.BatchNorm1d(width_tuple[0], momentum=1, affine=False)),
+            ('relu0', nn.ReLU(inplace=True)),
+            ]))
+        for i in range(len(width_tuple) - 1):
+            layer = nn.Sequential(OrderedDict([
+                ('linear%d'%(i+1), nn.Linear(width_tuple[i], width_tuple[i+1])),
+                ('norm%d'%(i+1), nn.BatchNorm1d(width_tuple[i+1], momentum=1, affine=False)),
+                ('relu%d'%(i+1), nn.ReLU(inplace=True)),
+                ]))
+            self.model.add_module('linblock%d'%(i+1), layer)
+
+        self.model.add_module('lastlayer', nn.Linear(width_tuple[-1], self.dataset_type.K))
+        self.apply(self.he_init)
+        self.init_w_b = self.get_weights_and_biases_data(self.model)
+
+        self.model.lastlayer.requires_grad_(False)
+
+    def he_init(self, module):
+        r'''
+        He-normal initialization for GP volume calculation.
+        The function should be used in conjuction with 'net.apply'
+        '''
+        if isinstance(module, nn.Conv2d) or isinstance(module, nn.Linear):
+            nn.init.kaiming_normal_(module.weight,
+                    mode='fan_in', # GP only involves feed-forward process
+                    nonlinearity='relu') # so gain = sqrt(2)
+            if (not (module.bias is None)):
+                nn.init.normal_(module.bias, std=0.1)
+
+    @staticmethod
+    def get_weights_and_biases_data(model):
+        return [p.data for name, p in model.named_parameters()]
+
+
+    def forward(self, x):
+        return self.model(x)
+
 class FCN_binary_test(ExperimentBaseModel):
     def __init__(self, width_tuple: list, dataset_type: DatasetType) -> None:
         super().__init__(dataset_type)
@@ -512,9 +561,10 @@ class CNN_binary(CNN):
 # Also, as in ResNet, here Conv layers all have biases.
 
 class _Transition(nn.Sequential):
-    def __init__(self, num_input_features, num_output_features, have_bias):
+    def __init__(self, num_input_features, num_output_features, have_bias, bn_momentum, bn_affine):
         super().__init__()
-        self.add_module('norm', nn.BatchNorm2d(num_input_features))
+        self.add_module('norm',
+                nn.BatchNorm2d(num_input_features, momentum=bn_momentum, affine=bn_affine))
         self.add_module('relu', nn.ReLU(inplace=True))
         self.add_module('conv', nn.Conv2d(num_input_features, num_output_features,
                                           kernel_size=1, stride=1, bias=have_bias))
@@ -522,13 +572,16 @@ class _Transition(nn.Sequential):
 
 
 class _DenseLayer(nn.Module):
-    def __init__(self, num_input_features, growth_rate, bn_size, drop_rate, have_bias):
+    def __init__(self, num_input_features, growth_rate, bn_size, drop_rate,
+            have_bias, bn_momentum, bn_affine):
         super().__init__()
-        self.add_module('norm1', nn.BatchNorm2d(num_input_features)),
+        self.add_module('norm1',
+                nn.BatchNorm2d(num_input_features, momentum=bn_momentum, affine=bn_affine)),
         self.add_module('relu1', nn.ReLU(inplace=True)),
         self.add_module('conv1', nn.Conv2d(num_input_features, bn_size *
                                            growth_rate, kernel_size=1, stride=1, bias=have_bias)),
-        self.add_module('norm2', nn.BatchNorm2d(bn_size * growth_rate)),
+        self.add_module('norm2', nn.BatchNorm2d(bn_size *
+            growth_rate, momentum=bn_momentum, affine=bn_affine)),
         self.add_module('relu2', nn.ReLU(inplace=True)),
         self.add_module('conv2', nn.Conv2d(bn_size * growth_rate, growth_rate,
                                            kernel_size=3, stride=1, padding=1, bias=have_bias)),
@@ -557,7 +610,8 @@ class _DenseLayer(nn.Module):
 
 class _DenseBlock(nn.ModuleDict):
 
-    def __init__(self, num_layers, num_input_features, bn_size, growth_rate, drop_rate, have_bias):
+    def __init__(self, num_layers, num_input_features, bn_size, growth_rate, drop_rate,
+            have_bias, bn_momentum, bn_affine):
         super().__init__()
         for i in range(num_layers):
             layer = _DenseLayer(
@@ -565,7 +619,9 @@ class _DenseBlock(nn.ModuleDict):
                 growth_rate=growth_rate,
                 bn_size=bn_size,
                 drop_rate=drop_rate,
-                have_bias=have_bias
+                have_bias=have_bias,
+                bn_momentum=bn_momentum,
+                bn_affine=bn_affine
             )
             self.add_module('denselayer%d' % (i + 1), layer)
 
@@ -579,7 +635,8 @@ class _DenseBlock(nn.ModuleDict):
 
 class DenseNet(ExperimentBaseModel):
     def __init__(self, dataset_type, growth_rate=32, block_config=(6, 12, 24, 16),
-                 num_init_features=64, bn_size=4, drop_rate=0, have_bias=True):
+                 num_init_features=64, bn_size=4, drop_rate=0, have_bias=True,
+                 bn_momentum=0.1, bn_affine=True):
 
         super().__init__(dataset_type)
 
@@ -590,7 +647,7 @@ class DenseNet(ExperimentBaseModel):
             ('conv0', nn.Conv2d(dataset_type.D[0],
                 num_init_features, kernel_size=7, stride=2,
                 padding=3, bias=have_bias)),
-            ('norm0', nn.BatchNorm2d(num_init_features)),
+            ('norm0', nn.BatchNorm2d(num_init_features, momentum=bn_momentum, affine=bn_affine)),
             ('relu0', nn.ReLU(inplace=True)),
             ('pool0', nn.MaxPool2d(kernel_size=3, stride=2, padding=1)),
         ]))
@@ -605,7 +662,9 @@ class DenseNet(ExperimentBaseModel):
                 bn_size=bn_size,
                 growth_rate=growth_rate,
                 drop_rate=drop_rate,
-                have_bias=have_bias
+                have_bias=have_bias,
+                bn_momentum=bn_momentum,
+                bn_affine=bn_affine
             )
             self.features.add_module('denseblock%d' % (i + 1), block)
             num_features = num_features + num_layers * growth_rate
@@ -613,12 +672,14 @@ class DenseNet(ExperimentBaseModel):
                 # add transition layer between denseblocks to
                 # downsample
                 trans = _Transition(num_input_features=num_features,
-                                    num_output_features=num_features // 2, have_bias=have_bias)
+                                    num_output_features=num_features // 2,
+                                    have_bias=have_bias, bn_momentum=bn_momentum, bn_affine=bn_affine)
                 self.features.add_module('transition%d' % (i + 1), trans)
                 num_features = num_features // 2
 
         # Final batch norm
-        self.features.add_module('norm5', nn.BatchNorm2d(num_features))
+        self.features.add_module('norm5', nn.BatchNorm2d(num_features,
+            momentum=bn_momentum, affine=bn_affine))
 
         # Linear layer
         self.classifier = nn.Linear(num_features, dataset_type.K)
@@ -645,9 +706,11 @@ class DenseNet(ExperimentBaseModel):
 class DenseNet_fc_popped(DenseNet):
 
     def __init__(self, dataset_type, growth_rate=32, block_config=(6, 12, 24, 16),
-                 num_init_features=64, bn_size=4, drop_rate=0, have_bias=True):
+                 num_init_features=64, bn_size=4, drop_rate=0, have_bias=True,
+                 bn_momentum=0.1):
         super().__init__(dataset_type, growth_rate=growth_rate, block_config=block_config,
-                num_init_features=num_init_features, bn_size=bn_size, drop_rate=drop_rate, have_bias=have_bias)
+                num_init_features=num_init_features, bn_size=bn_size, drop_rate=drop_rate,
+                have_bias=have_bias, bn_momentum=bn_momentum)
 
     def forward(self, x):
         features = self.features(x)
@@ -655,6 +718,37 @@ class DenseNet_fc_popped(DenseNet):
         out = F.adaptive_avg_pool2d(out, (1, 1))
         out = torch.flatten(out, 1)
         return out
+
+class DenseNet_fc_and_last_BN_frozen(DenseNet):
+    def __init__(self, dataset_type, growth_rate=32, block_config=(6, 12, 24, 16),
+                 num_init_features=64, bn_size=4, drop_rate=0, have_bias=True,
+                 bn_momentum=1, bn_affine=False):
+        super().__init__(dataset_type, growth_rate=growth_rate, block_config=block_config,
+                num_init_features=num_init_features, bn_size=bn_size, drop_rate=drop_rate,
+                have_bias=have_bias,bn_momentum=bn_momentum, bn_affine=bn_affine)
+
+        self.classifier.requires_grad_(False)
+        #for p in self.classifier.parameters():
+        #     p.requires_grad = False
+
+        #self._freeze_all_bn_parameters(self)
+
+    def forward(self, x):
+        features = self.features(x)
+        out = F.relu(features, inplace=True)
+        out = F.adaptive_avg_pool2d(out, (1, 1))
+        out = torch.flatten(out, 1)
+        out = self.classifier(out)
+        return out
+
+    @staticmethod
+    def _freeze_all_bn_parameters(model):
+        for child in model.children():
+            DenseNet_fc_and_last_BN_frozen._freeze_all_bn_parameters(child)
+            if child._get_name() == "BatchNorm2d":
+                for p in child.parameters():
+                    p.requires_grad = False
+                print(child.parameters())
 
 
 def DenseNet121(dataset_type):
@@ -668,6 +762,10 @@ def DenseNet_WO_bias_121(dataset_type):
 
 def DenseNet_WO_bias_121_fc_popped(dataset_type):
     return(DenseNet_fc_popped(dataset_type, 32, (6, 12, 24, 16), 64, have_bias=False))
+
+def DenseNet_WO_bias_121_scale_invariant(dataset_type):
+    return(DenseNet_fc_and_last_BN_frozen(dataset_type, 32, (6, 12, 24, 16), 64,
+        have_bias=False,bn_momentum=1,bn_affine=False))
 
 
 
