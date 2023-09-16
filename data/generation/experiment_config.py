@@ -101,6 +101,7 @@ class OptimizerType(Enum):
     SGD_MOMENTUM = 2
     ADAM = 3
     NERO = 4
+    SGD_MOMENTUM_WD = 5 # SGD with momentum and weight decay
 
 class LossType(Enum):
     CE = 1

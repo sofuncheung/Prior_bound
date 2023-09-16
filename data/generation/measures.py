@@ -694,7 +694,8 @@ def get_all_measures(
     def _path_norm(model: ExperimentBaseModel) -> Tensor:
         model = deepcopy(model)
         model.eval()
-        if hparams.model_type in ["DENSENET_WO_BIAS_121_S_INVAR","FCN_S_INVAR"]:
+        if hparams.model_type in [ModelType.DENSENET_WO_BIAS_121_S_INVAR,
+                ModelType.FCN_S_INVAR]:
             for param in model.parameters():
                     param.data.pow_(2)
         else:

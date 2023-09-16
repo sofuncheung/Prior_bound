@@ -118,6 +118,12 @@ class Experiment:
         elif self.hparams.optimizer_type == OptimizerType.SGD_MOMENTUM:
             self.optimizer = torch.optim.SGD(
                 self.model.parameters(), lr=self.hparams.lr, momentum=0.9)
+        elif self.hparams.optimizer_type == OptimizerType.SGD_MOMENTUM_WD:
+            self.optimizer = torch.optim.SGD(
+                self.model.parameters(), lr=self.hparams.lr, momentum=0.9,
+                weight_decay=0.0005)
+            # Note: for exp increasing lr + WD, we also need WD lambda to decrease
+            # exponentially otherwise GD won't work.
         elif self.hparams.optimizer_type == OptimizerType.ADAM:
             self.optimizer = torch.optim.Adam(
                 self.model.parameters(), lr=self.hparams.lr)
@@ -297,6 +303,10 @@ class Experiment:
 
             if self.scheduler != None:
                 self.scheduler.step()
+            if self.hparams.optimizer_type == OptimizerType.SGD_MOMENTUM_WD:
+                # exponentially decreasing the WD lambda
+                self.optimizer.param_groups[0]['weight_decay'] *= 1/self.hparams.lr_gamma
+
 
             # Log everything
             self.printer.batch_end(
